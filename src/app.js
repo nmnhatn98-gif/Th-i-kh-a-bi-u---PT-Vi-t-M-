@@ -11,7 +11,12 @@ import {
   restoreSnapshot,
   validateState,
   parseBackup,
-  exportCsv
+  exportCsv,
+  resolveSubjectAndTeacher,
+  assignTeacherToClassSubject,
+  unassignClassSubject,
+  getAssignedTeacher,
+  normalizeState
 } from './core.js';
 import {
   auth,
@@ -38,14 +43,18 @@ const OWNER_EMAIL = 'nmnhat.n98@gmail.com';
 // ----------------------------------------------------
 // Global State
 // ----------------------------------------------------
-let state = clone(SEED);
-let workingDraft = clone(SEED);
+let state = normalizeState(clone(SEED));
+let workingDraft = normalizeState(clone(SEED));
 let publishedTimetable = null;
 let currentRevision = 1;
 
 // Workspaces: 'ADMIN' | 'SCHEDULER' | 'HOMEROOM' | 'VISITING' | 'TEACHER'
 let currentWorkspace = 'ADMIN';
 let view = 'matrix'; // active sub-view
+let matrixViewMode = 'assignment'; // 'assignment' (Ma trận phân công Môn - Lớp) | 'timetable' (Tiết - Lớp)
+let brushTeacherId = '';
+let brushMode = 'none'; // 'none' | 'brush' | 'eraser'
+let selectedTeacherHighlight = '';
 let grade = '';
 let teacher = '';
 let query = '';
@@ -97,6 +106,45 @@ const text = (items, id, field = 'name') => items.find(x => x.id === id)?.[field
 const nameOfTeacher = id => text(state.teachers || [], id, 'fullName');
 const fmt = date => (date ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(date)) : '—');
 const fmtDateOnly = date => (date ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short' }).format(new Date(date)) : '—');
+
+export const titles = {
+  overview: 'Tổng quan hệ thống',
+  matrix: 'Thời khóa biểu toàn trường',
+  teacher: 'Lịch giáo viên',
+  conflicts: 'Kiểm tra xung đột',
+  versions: 'Phiên bản & Bản đã chốt',
+  catalog: 'Danh mục phục vụ xếp lịch',
+  accounts: 'Quản lý tài khoản & Phân quyền',
+  pending: 'Hồ sơ giáo viên chờ xác nhận',
+  backup: 'Sao lưu & Khôi phục',
+  school: 'Thông tin nhà trường',
+  homeroom_overview: 'Tổng quan lớp chủ nhiệm',
+  homeroom_class: 'Thời khóa biểu lớp chủ nhiệm',
+  my_teaching: 'Lịch giảng dạy của tôi',
+  published_all: 'Thời khóa biểu toàn trường đã chốt',
+  visiting_overview: 'Tổng quan giáo viên thỉnh giảng',
+  availability: 'Đăng ký thời gian có thể dạy',
+  submit_request: 'Gửi yêu cầu điều chỉnh lịch',
+  teacher_requests: 'Lịch bận & Yêu cầu của giáo viên',
+  profile: 'Hồ sơ cá nhân',
+  settings: 'Thông tin & Dữ liệu'
+};
+
+export function selectOptions(items = [], selectedId = '', labelField = 'name', emptyLabel = '') {
+  let html = '';
+  if (emptyLabel) {
+    html += `<option value="">${esc(emptyLabel)}</option>`;
+  }
+  if (Array.isArray(items)) {
+    for (const item of items) {
+      if (!item) continue;
+      const isSelected = String(item.id) === String(selectedId);
+      const label = item[labelField] ?? item.name ?? item.fullName ?? item.title ?? item.id ?? '';
+      html += `<option value="${esc(item.id)}"${isSelected ? ' selected' : ''}>${esc(label)}</option>`;
+    }
+  }
+  return html;
+}
 
 let toastTimer;
 function toast(message) {
@@ -1368,56 +1416,174 @@ function renderSchoolPage() {
 }
 
 // ----------------------------------------------------
-// Core Matrix Section (Preserved 100% of Existing Matrix)
+// Core Matrix Section (Ma trận phân công & Thời khóa biểu)
 // ----------------------------------------------------
 function renderMatrixSection(s) {
   const classes = (s.classes || []).filter(c => !grade || (grade === 'THCS' ? c.grade <= 9 : grade === 'THPT' ? c.grade >= 10 : String(c.grade) === grade));
-  const index = new Map((s.timetableCells || []).map(c => [keyOf(c.classId, c.timeSlotId), c]));
-  const conflictIds = new Set(findConflicts(s).flat().map(c => c.id));
-  const teacherName = text(s.teachers || [], teacher, 'fullName');
   const isReadonly = !canEditWorking();
+  const targetHighlightId = (brushMode === 'brush' && brushTeacherId) ? brushTeacherId : (selectedTeacherHighlight || teacher);
+  const targetTeacherName = targetHighlightId ? text(s.teachers || [], targetHighlightId, 'fullName') : '';
 
-  let rows = '';
-  for (let day = 2; day <= 6; day++) {
-    const slots = (s.timeSlots || []).filter(slot => slot.dayOfWeek === day).sort((a, b) => a.globalPeriod - b.globalPeriod);
-    slots.forEach((slot, i) => {
-      rows += `<tr class="${i === 0 ? 'day-start ' : ''}${slot.period === 1 && slot.session === 'AFTERNOON' ? 'afternoon-start' : ''}">${
-        i === 0 ? `<th rowspan="9" class="sticky-day day-name">THỨ ${['', '', 'HAI', 'BA', 'TƯ', 'NĂM', 'SÁU'][day]}</th>` : ''
-      }${slot.period === 1 ? `<th rowspan="${slot.session === 'MORNING' ? 5 : 4}" class="sticky-session session ${slot.session.toLowerCase()}">${slot.session === 'MORNING' ? 'SÁNG' : 'CHIỀU'}</th>` : ''}<th class="sticky-period period">${slot.period}</th><td class="sticky-time time">${esc(slot.startTime)}<br><span>${esc(slot.endTime)}</span></td>`;
-      for (const cls of classes) {
-        const cell = index.get(keyOf(cls.id, slot.id));
-        const subject = cell ? s.subjects?.find(x => x.id === cell.subjectId) : null;
-        const teacherText = cell ? text(s.teachers || [], cell.teacherId, 'fullName') : '';
-        const match =
-          (!teacher || cell?.teacherId === teacher) &&
-          (!query || `${subject?.name || ''} ${teacherText} ${cls.name}`.toLocaleLowerCase('vi').includes(query.toLocaleLowerCase('vi')));
+  let tableHeaderHtml = '';
+  let tableBodyHtml = '';
 
-        rows += `<td class="lesson ${cell ? 'filled' : 'empty'} ${!match ? 'dim' : ''} ${cell && conflictIds.has(cell.id) ? 'conflict' : ''}" style="${subject ? '--subject:' + esc(subject.color) + ';' : ''}">
-          <button data-cell-class="${esc(cls.id)}" data-cell-slot="${esc(slot.id)}" aria-label="${esc(`${cls.name}, thứ ${day}, ${slot.session === 'MORNING' ? 'sáng' : 'chiều'} tiết ${slot.period}${subject ? ', ' + subject.name : ''}`)}" ${isReadonly ? 'disabled' : ''}>
-            ${cell ? `<span class="subject-name">${esc(subject?.name)} ${cell.locked ? '<span class="lock" title="Đã khóa">▣</span>' : ''}</span><span class="teacher-name">${cell.teacherId ? esc(teacherText) : 'Chưa chọn giáo viên'}</span>${cell.note ? `<span class="cell-note" title="${esc(cell.note)}">${esc(cell.note)}</span>` : ''}` : '<span class="empty-mark">＋</span>'}
-          </button>
-        </td>`;
-      }
-      rows += '</tr>';
+  if (matrixViewMode === 'assignment') {
+    // ----------------------------------------------------
+    // Chế độ 1: Ma trận phân công (Hàng là Môn, Cột là Lớp)
+    // ----------------------------------------------------
+    tableHeaderHtml = `
+      <tr>
+        <th class="sticky-day" style="width:170px;min-width:170px;text-align:left;padding:12px 14px;">Môn học</th>
+        ${classes
+          .map(
+            cls => `
+          <th class="class-header">
+            <strong>${esc(cls.name)}</strong>
+            <span>${cls.grade < 10 ? 'THCS' : 'THPT'} · Khối ${cls.grade}</span>
+            <div>
+              <span>GVCN: ${cls.homeroomTeacherId ? esc(text(s.teachers || [], cls.homeroomTeacherId, 'fullName')) : '<em style="color:#94a69b;">Chưa có</em>'}</span>
+            </div>
+          </th>`
+          )
+          .join('')}
+      </tr>
+    `;
+
+    const filteredSubjects = (s.subjects || []).filter(subj => {
+      if (!query) return true;
+      const q = query.toLowerCase();
+      const matchSubj = (subj.name || '').toLowerCase().includes(q) || (subj.code || '').toLowerCase().includes(q);
+      if (matchSubj) return true;
+      // Also match if any teacher assigned in this subject matches
+      return classes.some(cls => {
+        const tea = getAssignedTeacher(s, cls.id, subj.id);
+        return tea && (tea.fullName.toLowerCase().includes(q) || tea.code.toLowerCase().includes(q));
+      });
     });
+
+    tableBodyHtml = filteredSubjects.map(subj => {
+      let cellsHtml = '';
+      for (const cls of classes) {
+        const assignedTeacher = getAssignedTeacher(s, cls.id, subj.id);
+        const hasTarget = !!targetHighlightId;
+        const isHighlighted = hasTarget && assignedTeacher && assignedTeacher.id === targetHighlightId;
+        const isDimmed = hasTarget && (!assignedTeacher || assignedTeacher.id !== targetHighlightId);
+
+        if (assignedTeacher) {
+          cellsHtml += `
+            <td class="lesson filled ${isHighlighted ? 'cell-highlighted' : ''} ${isDimmed ? 'cell-dimmed' : ''}" style="--subject:${esc(subj.color)};">
+              <button type="button" data-assign-cell="true" data-assign-class="${esc(cls.id)}" data-assign-subject="${esc(subj.id)}" ${isReadonly ? 'disabled' : ''} aria-label="${esc(`${cls.name}, ${subj.name}: ${assignedTeacher.fullName}`)}">
+                <span class="subject-name" style="font-weight:600;font-size:9px;color:#184239;">${esc(subj.name)}</span>
+                <strong class="teacher-name" style="font-size:10px;color:#184239;display:block;margin-top:2px;">${esc(assignedTeacher.fullName)}</strong>
+                <span class="cell-note" style="font-size:8px;color:#677e71;display:inline-block;background:#eef3eb;padding:1px 5px;border-radius:4px;margin-top:2px;">${esc(assignedTeacher.code)}</span>
+              </button>
+            </td>
+          `;
+        } else {
+          cellsHtml += `
+            <td class="lesson empty ${hasTarget ? 'cell-dimmed' : ''}">
+              <button type="button" data-assign-cell="true" data-assign-class="${esc(cls.id)}" data-assign-subject="${esc(subj.id)}" ${isReadonly ? 'disabled' : ''} aria-label="${esc(`${cls.name}, ${subj.name}: Chưa phân công`)}" title="Click để chọn giáo viên">
+                <span class="empty-mark">＋</span>
+              </button>
+            </td>
+          `;
+        }
+      }
+
+      return `
+        <tr>
+          <th class="sticky-day" style="text-align:left;padding:10px 14px;background:#f6faf4;position:sticky;left:0;z-index:6;border-right:1px solid #dce3d6;border-bottom:1px solid #dce3d6;">
+            <div style="display:flex;align-items:center;gap:7px;">
+              <i class="subject-dot" style="background:${esc(subj.color)};width:9px;height:9px;border-radius:3px;"></i>
+              <div>
+                <strong style="font-size:11px;color:#1c443b;display:block;">${esc(subj.name)}</strong>
+                <small style="color:#788c80;font-size:8px;">${esc(subj.code)}</small>
+              </div>
+            </div>
+          </th>
+          ${cellsHtml}
+        </tr>
+      `;
+    }).join('');
+
+  } else {
+    // ----------------------------------------------------
+    // Chế độ 2: Thời khóa biểu toàn trường (Tiết - Lớp)
+    // ----------------------------------------------------
+    tableHeaderHtml = `
+      <tr>
+        <th class="sticky-day">Thứ</th>
+        <th class="sticky-session">Buổi</th>
+        <th class="sticky-period">Tiết</th>
+        <th class="sticky-time">Thời gian</th>
+        ${classes
+          .map(
+            cls => `
+          <th class="class-header">
+            <strong>${esc(cls.name)}</strong>
+            <span>${cls.grade < 10 ? 'THCS' : 'THPT'} · Khối ${cls.grade}</span>
+            <div>
+              <span>GVCN: ${cls.homeroomTeacherId ? esc(text(s.teachers || [], cls.homeroomTeacherId, 'fullName')) : '<em style="color:#94a69b;">Chưa có</em>'}</span>
+            </div>
+          </th>`
+          )
+          .join('')}
+      </tr>
+    `;
+
+    const index = new Map((s.timetableCells || []).map(c => [keyOf(c.classId, c.timeSlotId), c]));
+    const conflictIds = new Set(findConflicts(s).flat().map(c => c.id));
+
+    let rows = '';
+    for (let day = 2; day <= 6; day++) {
+      const slots = (s.timeSlots || []).filter(slot => slot.dayOfWeek === day).sort((a, b) => a.globalPeriod - b.globalPeriod);
+      slots.forEach((slot, i) => {
+        rows += `<tr class="${i === 0 ? 'day-start ' : ''}${slot.period === 1 && slot.session === 'AFTERNOON' ? 'afternoon-start' : ''}">${
+          i === 0 ? `<th rowspan="9" class="sticky-day day-name">THỨ ${['', '', 'HAI', 'BA', 'TƯ', 'NĂM', 'SÁU'][day]}</th>` : ''
+        }${slot.period === 1 ? `<th rowspan="${slot.session === 'MORNING' ? 5 : 4}" class="sticky-session session ${slot.session.toLowerCase()}">${slot.session === 'MORNING' ? 'SÁNG' : 'CHIỀU'}</th>` : ''}<th class="sticky-period period">${slot.period}</th><td class="sticky-time time">${esc(slot.startTime)}<br><span>${esc(slot.endTime)}</span></td>`;
+        for (const cls of classes) {
+          const cell = index.get(keyOf(cls.id, slot.id));
+          const subject = cell ? s.subjects?.find(x => x.id === cell.subjectId) : null;
+          const teacherText = cell ? text(s.teachers || [], cell.teacherId, 'fullName') : '';
+          const hasTarget = !!targetHighlightId;
+          const isHighlighted = hasTarget && cell?.teacherId === targetHighlightId;
+          const isDimmed = hasTarget && (!cell || cell.teacherId !== targetHighlightId);
+          const matchQuery = !query || `${subject?.name || ''} ${teacherText} ${cls.name}`.toLocaleLowerCase('vi').includes(query.toLocaleLowerCase('vi'));
+
+          rows += `<td class="lesson ${cell ? 'filled' : 'empty'} ${isHighlighted ? 'cell-highlighted' : ''} ${isDimmed || !matchQuery ? 'cell-dimmed' : ''} ${cell && conflictIds.has(cell.id) ? 'conflict' : ''}" style="${subject ? '--subject:' + esc(subject.color) + ';' : ''}">
+            <button data-cell-class="${esc(cls.id)}" data-cell-slot="${esc(slot.id)}" aria-label="${esc(`${cls.name}, thứ ${day}, ${slot.session === 'MORNING' ? 'sáng' : 'chiều'} tiết ${slot.period}${subject ? ', ' + subject.name : ''}`)}" ${isReadonly ? 'disabled' : ''}>
+              ${cell ? `<span class="subject-name">${esc(subject?.name)} ${cell.locked ? '<span class="lock" title="Đã khóa">▣</span>' : ''}</span><span class="teacher-name">${cell.teacherId ? esc(teacherText) : 'Chưa chọn giáo viên'}</span>${cell.note ? `<span class="cell-note" title="${esc(cell.note)}">${esc(cell.note)}</span>` : ''}` : '<span class="empty-mark">＋</span>'}
+            </button>
+          </td>`;
+        }
+        rows += '</tr>';
+      });
+    }
+    tableBodyHtml = rows;
   }
 
   return `
-    <section class="matrix-panel">
+    <section class="matrix-panel ${brushMode !== 'none' ? 'brush-active' : ''}">
       <div class="panel-toolbar">
-        <div class="segmented">
-          ${
-            canEditWorking()
-              ? `
-            <button data-action="draft" class="${!showPublished ? 'selected' : ''}">Bản đang xếp</button>
-            <button data-action="published" class="${showPublished ? 'selected' : ''}" ${!publishedTimetable?.isPublished ? 'disabled' : ''}>
-              Bản đã chốt ${publishedTimetable?.isPublished ? '✓' : ''}
-            </button>
-          `
-              : `
-            <button class="selected" disabled>Bản công bố chính thức ✓</button>
-          `
-          }
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <div class="segmented">
+            <button data-set-matrix-mode="assignment" class="${matrixViewMode === 'assignment' ? 'selected' : ''}">📋 Ma trận phân công (Môn - Lớp)</button>
+            <button data-set-matrix-mode="timetable" class="${matrixViewMode === 'timetable' ? 'selected' : ''}">▦ Lịch tiết học (Tiết - Lớp)</button>
+          </div>
+          <div class="segmented">
+            ${
+              canEditWorking()
+                ? `
+              <button data-action="draft" class="${!showPublished ? 'selected' : ''}">Bản đang xếp</button>
+              <button data-action="published" class="${showPublished ? 'selected' : ''}" ${!publishedTimetable?.isPublished ? 'disabled' : ''}>
+                Bản đã chốt ${publishedTimetable?.isPublished ? '✓' : ''}
+              </button>
+            `
+                : `
+              <button class="selected" disabled>Bản công bố chính thức ✓</button>
+            `
+            }
+          </div>
         </div>
         <div class="toolbar-right">
           <label class="sr-only" for="teacher-filter">Lọc giáo viên</label>
@@ -1427,6 +1593,23 @@ function renderMatrixSection(s) {
           <button data-action="fullscreen" class="icon-button" title="Toàn màn hình">⛶</button>
         </div>
       </div>
+
+      <!-- Thanh công cụ Cọ gán nhanh (Quick Stamp / Brush Tool) -->
+      ${canEditWorking() ? `
+        <div class="brush-toolbar">
+          <span class="brush-title">🖌️ Cọ gán nhanh:</span>
+          <select id="brush-teacher-select" class="brush-select">
+            <option value="">— Chọn giáo viên để làm cọ —</option>
+            ${(s.teachers || []).map(t => `<option value="${esc(t.id)}" ${brushTeacherId === t.id && brushMode === 'brush' ? 'selected' : ''}>${esc(t.code)} · ${esc(t.fullName)} (${t.assignments?.length || 0} phân công)</option>`).join('')}
+          </select>
+          <button type="button" data-action="brush-eraser" class="brush-btn ${brushMode === 'eraser' ? 'eraser-active' : ''}" title="Bật tẩy để xóa nhanh khi click">🧼 Tẩy / Bỏ gán</button>
+          <button type="button" data-action="brush-off" class="brush-btn" ${brushMode === 'none' && !brushTeacherId && !selectedTeacherHighlight ? 'disabled' : ''} title="Tắt chế độ cọ">✕ Tắt cọ</button>
+
+          ${brushMode === 'brush' && brushTeacherId ? `<span class="brush-status-badge"><span>🖌️</span> Đang cầm cọ: <strong>${esc(text(s.teachers || [], brushTeacherId, 'fullName'))}</strong> (Click liên tiếp vào các ô để gán ngay)</span>` : ''}
+          ${brushMode === 'eraser' ? `<span class="brush-status-badge eraser"><span>🧼</span> Đang bật Tẩy (Click vào ô để xóa phân công)</span>` : ''}
+          ${selectedTeacherHighlight && brushMode === 'none' ? `<span class="brush-status-badge"><span>🔍</span> Rọi sáng: <strong>${esc(text(s.teachers || [], selectedTeacherHighlight, 'fullName'))}</strong> <button data-action="clear-highlight" style="background:none;border:none;padding:0;cursor:pointer;margin-left:5px;font-size:12px;color:#184239;" title="Tắt rọi sáng">✕</button></span>` : ''}
+        </div>
+      ` : ''}
 
       <div class="grade-toolbar">
         <span>Cột lớp</span>
@@ -1439,60 +1622,49 @@ function renderMatrixSection(s) {
       <div class="matrix-caption">
         <div>
           <span class="live-pill ${isReadonly ? 'published' : ''}">${isReadonly ? '✓ ĐÃ CHỐT' : '● BẢN ĐANG XẾP'}</span>
-          <h2>THỜI KHÓA BIỂU TOÀN TRƯỜNG</h2>
+          <h2>${matrixViewMode === 'assignment' ? 'MA TRẬN PHÂN CÔNG CHUYÊN MÔN (MÔN — LỚP)' : 'THỜI KHÓA BIỂU TOÀN TRƯỜNG'}</h2>
           <p>${esc(s.school?.name || '')} · ${esc(s.school?.year || '')} · ${esc(s.school?.term || '')}${s.school?.appliedDate ? ' · Áp dụng ' + esc(s.school.appliedDate) : ''}</p>
         </div>
         <p class="matrix-help">${
-          isReadonly
-            ? (teacher ? `Đang rọi sáng lịch: ${esc(teacherName)}` : 'Chế độ xem chỉ đọc bản lịch đã chốt.')
-            : teacher
-            ? 'Đang rọi sáng lịch: ' + esc(teacherName)
-            : 'Nhấp một ô để chọn môn & giáo viên. Ô có ▣ đang khóa.'
+          brushMode === 'brush'
+            ? `🖌️ Chế độ Cọ vẽ: Click bất kỳ ô nào để gán ngay cho ${esc(targetTeacherName)}.`
+            : brushMode === 'eraser'
+            ? '🧼 Chế độ Tẩy: Click bất kỳ ô nào để xóa phân công ngay lập tức.'
+            : targetTeacherId
+            ? `Đang rọi sáng phân công của: ${esc(targetTeacherName)}`
+            : isReadonly
+            ? 'Chế độ xem chỉ đọc bản lịch đã chốt.'
+            : 'Nhấp một ô để mở danh sách chọn giáo viên (Popover Click) hoặc dùng Cọ vẽ để gán nhanh.'
         }</p>
       </div>
 
-      <div class="matrix-scroll" tabindex="0" role="region" aria-label="Ma trận thời khóa biểu">
+      <div class="matrix-scroll" id="matrix-scroll-container" tabindex="0" role="region" aria-label="Ma trận thời khóa biểu">
         <table class="matrix ${compact ? 'compact' : ''}">
-          <thead>
-            <tr>
-              <th class="sticky-day">Thứ</th>
-              <th class="sticky-session">Buổi</th>
-              <th class="sticky-period">Tiết</th>
-              <th class="sticky-time">Thời gian</th>
-              ${classes
-                .map(
-                  cls => `
-                <th class="class-header">
-                  <strong>${esc(cls.name)}</strong>
-                  <span>${cls.grade < 10 ? 'THCS' : 'THPT'} · Khối ${cls.grade}</span>
-                  <div>
-                    <span>GV1: ${esc(text(s.teachers || [], cls.homeroomTeacherId, 'fullName'))}</span>
-                    <span>GV2: ${esc(text(s.teachers || [], cls.coHomeroomTeacherId, 'fullName'))}</span>
-                  </div>
-                </th>`
-                )
-                .join('')}
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
+          <thead>${tableHeaderHtml}</thead>
+          <tbody>${tableBodyHtml}</tbody>
         </table>
       </div>
 
       <div class="matrix-bottom">
-        <span><i></i> Môn học & giáo viên trong cùng một ô</span>
-        <span>${isReadonly ? 'Chế độ xem chỉ đọc' : 'Đồng bộ Cloud tự động'} · Thứ Hai → Thứ Sáu · 5 sáng / 4 chiều</span>
+        <span><i></i> ${matrixViewMode === 'assignment' ? 'Ma trận gán trực tiếp giáo viên dạy theo môn & lớp' : 'Môn học & giáo viên trong từng tiết học'}</span>
+        <span>${isReadonly ? 'Chế độ xem chỉ đọc' : 'Đồng bộ Cloud tự động'} · 2 chế độ: Popover chọn nhanh & Cọ vẽ liên tiếp</span>
       </div>
     </section>
+
+    <!-- Floating Cursor Tooltip for Brush -->
+    <div id="brush-cursor-indicator" class="brush-cursor-indicator" style="display:none;"></div>
   `;
 }
 
 // ----------------------------------------------------
-// Preserved Catalog, Conflicts, Versions, Settings
+// Preserved Catalog (Với GVCN cho Lớp & Phân công cho GV)
 // ----------------------------------------------------
 function catalog() {
   if (!isSchedulerRole()) return '<div class="alert">Bạn không có quyền chỉnh sửa danh mục.</div>';
   return `
-    <div class="notice">Không có phân công chuyên môn hoặc định mức giáo viên. Chọn môn và giáo viên trực tiếp trên ma trận. Mọi thay đổi được lưu trực tiếp vào bản nháp Cloud.</div>
+    <div class="notice">
+      Danh mục nhà trường liên kết trực tiếp 2 chiều với ma trận: gán giáo viên trên ma trận sẽ tự động cập nhật số lớp phụ trách của giáo viên đó. Nhấp vào thẻ giáo viên để rọi sáng trên ma trận.
+    </div>
     <div class="catalog-grid">
       ${[['classes', 'Lớp học'], ['subjects', 'Môn học'], ['teachers', 'Giáo viên']]
         .map(
@@ -1507,19 +1679,51 @@ function catalog() {
               ? `
             <div class="catalog-list">
               ${state[kind]
-                .map(
-                  item => `
-                <div class="catalog-row">
-                  <div>
-                    ${kind === 'subjects' ? `<i class="subject-dot" style="background:${esc(item.color)}"></i>` : ''}
-                    <strong>${esc(kind === 'teachers' ? item.fullName : item.name)}</strong>
-                    <small>${esc(item.code)}${kind === 'classes' ? ' · Khối ' + item.grade : ''}</small>
-                  </div>
-                  <button data-edit="${kind}" data-id="${esc(item.id)}" aria-label="Sửa ${esc(item.name || item.fullName)}">Sửa</button>
-                  <button data-delete="${kind}" data-id="${esc(item.id)}" class="danger-link" aria-label="Xóa ${esc(item.name || item.fullName)}">×</button>
-                </div>
-              `
-                )
+                .map(item => {
+                  if (kind === 'classes') {
+                    const hrTeacher = item.homeroomTeacherId ? (state.teachers || []).find(t => t.id === item.homeroomTeacherId) : null;
+                    return `
+                      <div class="catalog-row">
+                        <div>
+                          <strong>${esc(item.name)}</strong>
+                          <small>${esc(item.code)} · Khối ${item.grade}</small>
+                          <div class="catalog-subinfo">GVCN: ${hrTeacher ? esc(hrTeacher.fullName) : '<span class="text-muted">Chưa có GVCN</span>'}</div>
+                        </div>
+                        <button data-edit="classes" data-id="${esc(item.id)}" aria-label="Sửa ${esc(item.name)}">Sửa</button>
+                        <button data-delete="classes" data-id="${esc(item.id)}" class="danger-link" aria-label="Xóa ${esc(item.name)}">×</button>
+                      </div>
+                    `;
+                  }
+                  if (kind === 'teachers') {
+                    const hrClasses = (state.classes || []).filter(c => c.homeroomTeacherId === item.id);
+                    const assignCount = Array.isArray(item.assignments) ? item.assignments.length : 0;
+                    const isHighlighted = selectedTeacherHighlight === item.id || (brushMode === 'brush' && brushTeacherId === item.id);
+                    return `
+                      <div class="catalog-row catalog-teacher-card ${isHighlighted ? 'selected' : ''}" data-select-teacher="${esc(item.id)}" title="Nhấp để rọi sáng và dùng cọ gán cho giáo viên này trên ma trận">
+                        <div>
+                          <strong>${esc(item.fullName)}</strong>
+                          <small>${esc(item.code)}</small>
+                          <div class="catalog-subinfo">
+                            ${hrClasses.length ? `Chủ nhiệm: <strong>${hrClasses.map(c => esc(c.name)).join(', ')}</strong>` : '<span class="text-muted">Chưa có lớp chủ nhiệm</span>'} · <strong>${assignCount}</strong> môn/lớp phụ trách
+                          </div>
+                        </div>
+                        <button data-edit="teachers" data-id="${esc(item.id)}" aria-label="Sửa ${esc(item.fullName)}">Sửa</button>
+                        <button data-delete="teachers" data-id="${esc(item.id)}" class="danger-link" aria-label="Xóa ${esc(item.fullName)}">×</button>
+                      </div>
+                    `;
+                  }
+                  return `
+                    <div class="catalog-row">
+                      <div>
+                        <i class="subject-dot" style="background:${esc(item.color)}"></i>
+                        <strong>${esc(item.name)}</strong>
+                        <small>${esc(item.code)}</small>
+                      </div>
+                      <button data-edit="subjects" data-id="${esc(item.id)}" aria-label="Sửa ${esc(item.name)}">Sửa</button>
+                      <button data-delete="subjects" data-id="${esc(item.id)}" class="danger-link" aria-label="Xóa ${esc(item.name)}">×</button>
+                    </div>
+                  `;
+                })
                 .join('')}
             </div>
           `
@@ -1711,29 +1915,6 @@ function settings() {
     </div>
   `;
 }
-
-const titles = {
-  overview: 'Tổng quan hệ thống',
-  matrix: 'Thời khóa biểu toàn trường',
-  teacher: 'Lịch giáo viên',
-  conflicts: 'Kiểm tra xung đột',
-  versions: 'Phiên bản & Bản đã chốt',
-  catalog: 'Danh mục phục vụ xếp lịch',
-  accounts: 'Quản lý tài khoản & Phân quyền',
-  pending: 'Hồ sơ giáo viên chờ xác nhận',
-  backup: 'Sao lưu & Khôi phục',
-  school: 'Thông tin nhà trường',
-  homeroom_overview: 'Tổng quan lớp chủ nhiệm',
-  homeroom_class: 'Thời khóa biểu lớp chủ nhiệm',
-  my_teaching: 'Lịch giảng dạy của tôi',
-  published_all: 'Thời khóa biểu toàn trường đã chốt',
-  visiting_overview: 'Tổng quan giáo viên thỉnh giảng',
-  availability: 'Đăng ký thời gian có thể dạy',
-  submit_request: 'Gửi yêu cầu điều chỉnh lịch',
-  teacher_requests: 'Lịch bận & Yêu cầu của giáo viên',
-  profile: 'Hồ sơ cá nhân',
-  settings: 'Thông tin & Dữ liệu'
-};
 
 // ----------------------------------------------------
 // Main Master Render Dispatcher
@@ -1966,6 +2147,83 @@ function openDialog(html) {
 }
 const closeButton = '<button type="button" data-action="close" class="icon-button" aria-label="Đóng">×</button>';
 
+function openAssignmentPopover({ classId, subjectId, anchorElement }) {
+  closePopover();
+  const cls = (workingDraft.classes || []).find(c => c.id === classId);
+  const subj = (workingDraft.subjects || []).find(s => s.id === subjectId);
+  const currentAssigned = getAssignedTeacher(workingDraft, classId, subjectId);
+  const teachers = workingDraft.teachers || [];
+
+  const rect = anchorElement.getBoundingClientRect();
+  const popoverWidth = 280;
+  let left = rect.left;
+  if (left + popoverWidth > window.innerWidth - 12) {
+    left = window.innerWidth - popoverWidth - 12;
+  }
+  if (left < 10) left = 10;
+
+  let top = rect.bottom + 6;
+  if (top + 330 > window.innerHeight) {
+    top = Math.max(10, rect.top - 320);
+  }
+
+  const container = document.createElement('div');
+  container.id = 'active-matrix-popover-root';
+  container.innerHTML = `
+    <div class="matrix-popover-overlay" data-action="close-popover"></div>
+    <div class="matrix-popover" style="top:${top}px;left:${left}px;">
+      <div class="popover-header">
+        <div>
+          <strong style="font-size:12px;color:#184239;">${esc(subj?.name || 'Môn học')}</strong>
+          <small style="color:#71877b;">Lớp ${esc(cls?.name || '')}</small>
+        </div>
+        <button type="button" class="popover-close-btn" data-action="close-popover" title="Đóng">✕</button>
+      </div>
+
+      <input type="text" class="popover-search" id="popover-search-input" placeholder="Tìm tên hoặc mã giáo viên..." autocomplete="off">
+
+      <div class="popover-teachers-list" id="popover-teachers-list">
+        ${teachers.length ? teachers.map(t => {
+          const isCurrent = currentAssigned?.id === t.id;
+          const initials = (t.code || 'GV').slice(0, 3).toUpperCase();
+          const assignCount = Array.isArray(t.assignments) ? t.assignments.length : 0;
+          return `
+            <button type="button" class="popover-teacher-btn ${isCurrent ? 'selected' : ''}" data-popover-select-teacher="${esc(t.id)}" data-class="${esc(classId)}" data-subject="${esc(subjectId)}">
+              <span class="popover-avatar">${esc(initials)}</span>
+              <span class="popover-teacher-name">${esc(t.fullName)}</span>
+              <span class="popover-teacher-code">${esc(t.code)}</span>
+              ${isCurrent ? '<span style="color:#16a34a;font-weight:700;margin-left:auto;">✓</span>' : `<small style="font-size:8px;color:#8ba093;margin-left:auto;">${assignCount} lớp</small>`}
+            </button>
+          `;
+        }).join('') : '<p style="font-size:11px;color:#888;padding:12px;text-align:center;">Chưa có giáo viên nào trong danh mục.</p>'}
+      </div>
+
+      <button type="button" class="popover-unassign-btn" data-action="popover-unassign" data-class="${esc(classId)}" data-subject="${esc(subjectId)}">
+        ✕ Xóa phân công
+      </button>
+    </div>
+  `;
+  document.body.appendChild(container);
+
+  setTimeout(() => {
+    const searchIn = container.querySelector('#popover-search-input');
+    searchIn?.focus();
+    searchIn?.addEventListener('input', e => {
+      const q = e.target.value.toLowerCase().trim();
+      const items = container.querySelectorAll('.popover-teacher-btn');
+      items.forEach(btn => {
+        const text = btn.textContent.toLowerCase();
+        btn.style.display = text.includes(q) ? 'flex' : 'none';
+      });
+    });
+  }, 20);
+}
+
+function closePopover() {
+  const existing = document.querySelector('#active-matrix-popover-root');
+  if (existing) existing.remove();
+}
+
 function cellEditor(classId, timeSlotId) {
   if (!canEditWorking()) {
     toast('Chỉ Người xếp lịch hoặc Quản trị viên mới được sửa ô ở bản nháp.');
@@ -1974,13 +2232,15 @@ function cellEditor(classId, timeSlotId) {
   const cls = (state.classes || []).find(c => c.id === classId);
   const slot = (state.timeSlots || []).find(s => s.id === timeSlotId);
   const cell = (state.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+  const currentSub = cell ? (state.subjects || []).find(s => s.id === cell.subjectId) : null;
+  const currentTea = cell ? (state.teachers || []).find(t => t.id === cell.teacherId) : null;
   const locked = !!cell?.locked;
 
   openDialog(`
     <form id="cell-form" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}">
       <div class="dialog-title">
         <div>
-          <div class="eyebrow">CHỈNH Ô THỜI KHÓA BIỂU</div>
+          <div class="eyebrow">CHỈNH SỬA & NHẬP LIỆU Ô LỊCH</div>
           <h2>${esc(cls?.name || '')}</h2>
           <p>Thứ ${slot?.dayOfWeek || ''} · ${slot?.session === 'MORNING' ? 'Sáng' : 'Chiều'} tiết ${slot?.period || ''} · ${esc(slot?.startTime || '')}–${esc(slot?.endTime || '')}</p>
         </div>
@@ -1988,18 +2248,60 @@ function cellEditor(classId, timeSlotId) {
       </div>
       ${locked ? '<div class="notice">Ô đã khóa. Mở khóa để thay đổi môn, giáo viên hoặc xóa.</div>' : ''}
       <fieldset ${locked ? 'disabled' : ''}>
-        <label>Môn học
-          <select name="subjectId" required>${selectOptions(state.subjects || [], cell?.subjectId, 'name', 'Chọn môn học')}</select>
+        <!-- Chuyển đổi phương thức: Nhập liệu trực tiếp vs Chọn từ danh mục -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;background:#f0f4ee;padding:3px 4px;border-radius:8px;">
+          <div style="display:flex;gap:3px;">
+            <button type="button" id="tab-mode-type" class="mode-tab selected" style="font-size:11px;padding:6px 12px;border:none;background:#fff;color:#184239;font-weight:700;border-radius:6px;box-shadow:0 1px 3px rgba(0,0,0,0.1);">⌨️ Nhập liệu nhanh (Gõ phím)</button>
+            <button type="button" id="tab-mode-select" class="mode-tab" style="font-size:11px;padding:6px 12px;border:none;background:transparent;color:#687b72;border-radius:6px;">📋 Chọn từ danh sách</button>
+          </div>
+          <span style="font-size:10px;color:#7c8f85;padding-right:6px;">Enter để lưu</span>
+        </div>
+
+        <!-- Chế độ 1: Nhập liệu trực tiếp -->
+        <div id="panel-mode-type">
+          <label style="margin-top:0;">⚡ Gõ nhanh 1 dòng (Môn - Giáo viên)
+            <input type="text" name="quickLine" id="quick-line-input" placeholder="Ví dụ: Toán - Nguyễn Văn A hoặc TOAN - NVA" autocomplete="off" value="${cell && currentSub ? `${esc(currentSub.name)}${currentTea ? ' - ' + esc(currentTea.fullName) : ''}` : ''}">
+            <span class="field-help" style="font-size:10px;color:#798b81;display:block;margin-top:3px;">Cú pháp: <code>[Tên môn/mã môn] - [Tên/mã giáo viên]</code>. Nhấn Enter để lưu ngay.</span>
+          </label>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+            <label style="margin-top:0;">Môn học (Gõ tên / mã)
+              <input type="text" name="subjectInput" id="cell-subject-input" list="subjects-datalist" placeholder="Toán, Văn, TOAN..." value="${esc(currentSub?.name || '')}" autocomplete="off">
+              <datalist id="subjects-datalist">
+                ${(state.subjects || []).map(s => `<option value="${esc(s.name)}">${esc(s.code)} · ${esc(s.name)}</option>`).join('')}
+              </datalist>
+            </label>
+
+            <label style="margin-top:0;">Giáo viên (Gõ tên / mã)
+              <input type="text" name="teacherInput" id="cell-teacher-input" list="teachers-datalist" placeholder="Thầy An, Cô Lan, NVA..." value="${esc(currentTea?.fullName || '')}" autocomplete="off">
+              <datalist id="teachers-datalist">
+                ${(state.teachers || []).map(t => `<option value="${esc(t.fullName)}">${esc(t.code)} · ${esc(t.fullName)}</option>`).join('')}
+              </datalist>
+            </label>
+          </div>
+          <p class="field-help" style="font-size:10px;color:#496d5e;background:#edf4ec;padding:8px 10px;border-radius:6px;margin:10px 0 0;line-height:1.5;">
+            💡 <strong>Tự động nhận diện & thêm mới:</strong> Nếu bạn gõ môn hoặc tên giáo viên chưa có trong hệ thống, app sẽ tự động tạo mới vào danh mục nhà trường.
+          </p>
+        </div>
+
+        <!-- Chế độ 2: Chọn từ danh sách -->
+        <div id="panel-mode-select" style="display:none;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <label style="margin-top:0;">Môn học
+              <select name="subjectId" id="cell-subject-select">${selectOptions(state.subjects || [], cell?.subjectId, 'name', '— Chọn môn học —')}</select>
+            </label>
+            <label style="margin-top:0;">Giáo viên
+              <select name="teacherId" id="cell-teacher-select">${selectOptions(state.teachers || [], cell?.teacherId, 'fullName', '— Chưa chọn giáo viên —')}</select>
+            </label>
+          </div>
+          <p class="field-help" style="margin-top:8px;">Chọn từ danh mục môn học và giáo viên hiện có.</p>
+        </div>
+
+        <label style="margin-top:14px;">Ghi chú ô
+          <input name="note" maxlength="200" value="${esc(cell?.note || '')}" placeholder="Ví dụ: phòng máy tính, phòng thí nghiệm, học bù…">
         </label>
-        <label>Giáo viên
-          <select name="teacherId">${selectOptions(state.teachers || [], cell?.teacherId, 'fullName', 'Chưa chọn giáo viên')}</select>
-        </label>
-        <p class="field-help">Giáo viên đã có lịch cùng tiết sẽ được báo lỗi trước khi lưu.</p>
-        <label>Ghi chú
-          <input name="note" maxlength="200" value="${esc(cell?.note || '')}" placeholder="Ví dụ: học phòng thực hành, học bù…">
-        </label>
-        <label class="checkbox">
-          <input type="checkbox" name="locked" ${locked ? 'checked' : ''}> Khóa ô sau khi lưu
+        <label class="checkbox" style="margin-top:12px;">
+          <input type="checkbox" name="locked" ${locked ? 'checked' : ''}> Khóa ô sau khi lưu (ngăn sửa đổi ngoài ý muốn)
         </label>
       </fieldset>
       <div id="form-error" class="form-error" role="alert"></div>
@@ -2021,6 +2323,14 @@ function cellEditor(classId, timeSlotId) {
       </div>
     </form>
   `);
+
+  setTimeout(() => {
+    const qInput = dialog.querySelector('#quick-line-input') || dialog.querySelector('#cell-subject-input');
+    if (qInput && !locked) {
+      qInput.focus();
+      qInput.select();
+    }
+  }, 40);
 }
 
 function entityEditor(kind, id) {
@@ -2048,11 +2358,8 @@ function entityEditor(kind, id) {
             ${[6, 7, 8, 9, 10, 11, 12].map(g => `<option value="${g}" ${item.grade === g ? 'selected' : ''}>Khối ${g}</option>`).join('')}
           </select>
         </label>
-        <label>Giáo viên chủ nhiệm 1
-          <select name="homeroomTeacherId">${selectOptions(state.teachers || [], item.homeroomTeacherId, 'fullName', 'Chưa chọn')}</select>
-        </label>
-        <label>Giáo viên chủ nhiệm 2
-          <select name="coHomeroomTeacherId">${selectOptions(state.teachers || [], item.coHomeroomTeacherId, 'fullName', 'Chưa chọn')}</select>
+        <label>Giáo viên chủ nhiệm (GVCN)
+          <select name="homeroomTeacherId">${selectOptions(state.teachers || [], item.homeroomTeacherId, 'fullName', '— Chưa có GVCN —')}</select>
         </label>
       `
           : kind === 'subjects'
@@ -2440,7 +2747,128 @@ document.addEventListener('click', async event => {
     respondRequestDialog(element.dataset.id, element.dataset.decision);
     return;
   }
+  if (element.dataset.setMatrixMode) {
+    matrixViewMode = element.dataset.setMatrixMode;
+    render();
+    return;
+  }
+  if (element.dataset.action === 'brush-eraser') {
+    brushMode = (brushMode === 'eraser' ? 'none' : 'eraser');
+    if (brushMode === 'eraser') selectedTeacherHighlight = '';
+    render();
+    return;
+  }
+  if (element.dataset.action === 'brush-off') {
+    brushMode = 'none';
+    brushTeacherId = '';
+    selectedTeacherHighlight = '';
+    render();
+    return;
+  }
+  if (element.dataset.action === 'clear-highlight') {
+    selectedTeacherHighlight = '';
+    if (brushMode !== 'brush') brushTeacherId = '';
+    render();
+    return;
+  }
+  if (element.dataset.action === 'close-popover') {
+    closePopover();
+    return;
+  }
+  if (element.dataset.popoverSelectTeacher || element.closest('[data-popover-select-teacher]')) {
+    const btn = element.dataset.popoverSelectTeacher ? element : element.closest('[data-popover-select-teacher]');
+    const teacherId = btn.dataset.popoverSelectTeacher;
+    const classId = btn.dataset.class;
+    const subjectId = btn.dataset.subject;
+    closePopover();
+    const next = assignTeacherToClassSubject(workingDraft, { classId, subjectId, teacherId });
+    if (await syncWorkingToCloud(next)) {
+      render();
+    }
+    return;
+  }
+  if (element.dataset.action === 'popover-unassign') {
+    const classId = element.dataset.class;
+    const subjectId = element.dataset.subject;
+    closePopover();
+    const next = unassignClassSubject(workingDraft, { classId, subjectId });
+    if (await syncWorkingToCloud(next)) {
+      render();
+    }
+    return;
+  }
+  if (element.dataset.assignCell || element.closest('[data-assign-cell]')) {
+    const target = element.dataset.assignCell ? element : element.closest('[data-assign-cell]');
+    const classId = target.dataset.assignClass;
+    const subjectId = target.dataset.assignSubject;
+
+    if (!canEditWorking()) {
+      toast('Bản lịch đã chốt hoặc bạn không có quyền xếp lịch.');
+      return;
+    }
+
+    // Quick Stamp / Brush Mode
+    if (brushMode === 'brush' && brushTeacherId) {
+      const next = assignTeacherToClassSubject(workingDraft, { classId, subjectId, teacherId: brushTeacherId });
+      if (await syncWorkingToCloud(next)) {
+        render();
+      }
+      return;
+    }
+    if (brushMode === 'eraser') {
+      const next = unassignClassSubject(workingDraft, { classId, subjectId });
+      if (await syncWorkingToCloud(next)) {
+        render();
+      }
+      return;
+    }
+
+    // Default Mode: Popover Click
+    openAssignmentPopover({ classId, subjectId, anchorElement: target });
+    return;
+  }
+  if (element.dataset.selectTeacher || element.closest('[data-select-teacher]')) {
+    const card = element.dataset.selectTeacher ? element : element.closest('[data-select-teacher]');
+    if (card && !element.closest('button[data-edit], button[data-delete]')) {
+      const teacherId = card.dataset.selectTeacher;
+      if (selectedTeacherHighlight === teacherId && brushMode === 'brush') {
+        selectedTeacherHighlight = '';
+        brushTeacherId = '';
+        brushMode = 'none';
+        toast('Đã tắt rọi sáng giáo viên.');
+      } else {
+        selectedTeacherHighlight = teacherId;
+        brushTeacherId = teacherId;
+        brushMode = 'brush';
+        view = 'matrix';
+        toast(`Đang rọi sáng và dùng cọ gán cho: ${text(state.teachers, teacherId, 'fullName')}`);
+      }
+      render();
+      return;
+    }
+  }
+
   if (element.dataset.cellClass) {
+    // If in timetable mode and brush is active, also stamp directly!
+    if (canEditWorking() && brushMode === 'brush' && brushTeacherId) {
+      const classId = element.dataset.cellClass;
+      const timeSlotId = element.dataset.cellSlot;
+      const cell = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+      if (cell && !cell.locked) {
+        const next = putCell(workingDraft, { ...cell, teacherId: brushTeacherId }, { allowConflict: true });
+        if (await syncWorkingToCloud(next)) render();
+        return;
+      }
+    } else if (canEditWorking() && brushMode === 'eraser') {
+      const classId = element.dataset.cellClass;
+      const timeSlotId = element.dataset.cellSlot;
+      const cell = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+      if (cell && !cell.locked) {
+        const next = putCell(workingDraft, { ...cell, teacherId: '' }, { allowConflict: true });
+        if (await syncWorkingToCloud(next)) render();
+        return;
+      }
+    }
     cellEditor(element.dataset.cellClass, element.dataset.cellSlot);
     return;
   }
@@ -2481,6 +2909,48 @@ document.addEventListener('click', async event => {
       await syncWorkingToCloud(next);
     }
   }
+
+  // Chuyển tab trong hộp chỉnh ô: Nhập liệu trực tiếp vs Chọn danh mục
+  if (element.id === 'tab-mode-type' || element.closest('#tab-mode-type')) {
+    const typeBtn = document.querySelector('#tab-mode-type');
+    const selectBtn = document.querySelector('#tab-mode-select');
+    const typePanel = document.querySelector('#panel-mode-type');
+    const selectPanel = document.querySelector('#panel-mode-select');
+    if (typeBtn && selectBtn && typePanel && selectPanel) {
+      typeBtn.style.background = '#fff';
+      typeBtn.style.color = '#184239';
+      typeBtn.style.fontWeight = '700';
+      typeBtn.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+      selectBtn.style.background = 'transparent';
+      selectBtn.style.color = '#687b72';
+      selectBtn.style.fontWeight = '500';
+      selectBtn.style.boxShadow = 'none';
+      typePanel.style.display = 'block';
+      selectPanel.style.display = 'none';
+      document.querySelector('#quick-line-input')?.focus();
+    }
+    return;
+  }
+  if (element.id === 'tab-mode-select' || element.closest('#tab-mode-select')) {
+    const typeBtn = document.querySelector('#tab-mode-type');
+    const selectBtn = document.querySelector('#tab-mode-select');
+    const typePanel = document.querySelector('#panel-mode-type');
+    const selectPanel = document.querySelector('#panel-mode-select');
+    if (typeBtn && selectBtn && typePanel && selectPanel) {
+      selectBtn.style.background = '#fff';
+      selectBtn.style.color = '#184239';
+      selectBtn.style.fontWeight = '700';
+      selectBtn.style.boxShadow = '0 1px 3px rgba(0,0,0,0.1)';
+      typeBtn.style.background = 'transparent';
+      typeBtn.style.color = '#687b72';
+      typeBtn.style.fontWeight = '500';
+      typeBtn.style.boxShadow = 'none';
+      selectPanel.style.display = 'block';
+      typePanel.style.display = 'none';
+      document.querySelector('#cell-subject-select')?.focus();
+    }
+    return;
+  }
 });
 
 document.addEventListener('change', event => {
@@ -2504,10 +2974,74 @@ document.addEventListener('change', event => {
   if (event.target.id === 'homeroom-class-select') {
     selectedHomeroomClassId = event.target.value;
     render();
+    return;
+  }
+  if (event.target.id === 'cell-subject-select') {
+    const selSub = (state.subjects || []).find(s => s.id === event.target.value);
+    const subIn = document.querySelector('#cell-subject-input');
+    if (subIn && selSub) subIn.value = selSub.name;
+    const qIn = document.querySelector('#quick-line-input');
+    const teaIn = document.querySelector('#cell-teacher-input');
+    if (qIn && selSub) qIn.value = `${selSub.name}${teaIn?.value ? ' - ' + teaIn.value : ''}`;
+  }
+  if (event.target.id === 'brush-teacher-select') {
+    brushTeacherId = event.target.value;
+    brushMode = brushTeacherId ? 'brush' : 'none';
+    selectedTeacherHighlight = brushTeacherId;
+    render();
+    return;
+  }
+  if (event.target.id === 'cell-teacher-select') {
+    const selTea = (state.teachers || []).find(t => t.id === event.target.value);
+    const teaIn = document.querySelector('#cell-teacher-input');
+    if (teaIn && selTea) teaIn.value = selTea.fullName;
+    const qIn = document.querySelector('#quick-line-input');
+    const subIn = document.querySelector('#cell-subject-input');
+    if (qIn && subIn?.value) qIn.value = `${subIn.value}${selTea ? ' - ' + selTea.fullName : ''}`;
+  }
+});
+
+document.addEventListener('mousemove', event => {
+  const indicator = document.querySelector('#brush-cursor-indicator');
+  if (!indicator) return;
+  if (brushMode === 'none') {
+    indicator.style.display = 'none';
+    return;
+  }
+  const overMatrix = event.target.closest('#matrix-scroll-container, .matrix');
+  if (overMatrix) {
+    indicator.style.display = 'block';
+    indicator.style.left = (event.clientX + 14) + 'px';
+    indicator.style.top = (event.clientY + 14) + 'px';
+    if (brushMode === 'brush' && brushTeacherId) {
+      indicator.className = 'brush-cursor-indicator';
+      indicator.innerHTML = `🖌️ ${esc(text(state.teachers || [], brushTeacherId, 'fullName'))}`;
+    } else if (brushMode === 'eraser') {
+      indicator.className = 'brush-cursor-indicator eraser';
+      indicator.innerHTML = '🧼 Tẩy phân công';
+    }
+  } else {
+    indicator.style.display = 'none';
+  }
+});
+
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape') {
+    closePopover();
   }
 });
 
 document.addEventListener('input', event => {
+  if (event.target.id === 'quick-line-input') {
+    const val = event.target.value;
+    if (val.includes('-') || val.includes('–')) {
+      const parts = val.split(/[-–]/).map(s => s.trim());
+      const subIn = document.querySelector('#cell-subject-input');
+      const teaIn = document.querySelector('#cell-teacher-input');
+      if (subIn && parts[0]) subIn.value = parts[0];
+      if (teaIn && parts[1] !== undefined) teaIn.value = parts[1];
+    }
+  }
   if (event.target.id === 'search') {
     const start = event.target.selectionStart;
     query = event.target.value;
@@ -2561,15 +3095,33 @@ document.addEventListener('submit', async event => {
       };
       render();
     } else if (form.id === 'cell-form') {
-      const next = putCell(workingDraft, {
-        classId: form.dataset.class,
-        timeSlotId: form.dataset.slot,
-        subjectId: data.get('subjectId'),
-        teacherId: data.get('teacherId') || '',
+      const classId = form.dataset.class;
+      const timeSlotId = form.dataset.slot;
+
+      const res = resolveSubjectAndTeacher(workingDraft, {
+        quickLine: String(data.get('quickLine') || ''),
+        subjectInput: String(data.get('subjectInput') || ''),
+        teacherInput: String(data.get('teacherInput') || ''),
+        subjectId: String(data.get('subjectId') || ''),
+        teacherId: String(data.get('teacherId') || '')
+      });
+
+      if (!res.subjectId) {
+        throw Error('Vui lòng nhập hoặc chọn môn học.');
+      }
+
+      const next = putCell(res.state, {
+        classId,
+        timeSlotId,
+        subjectId: res.subjectId,
+        teacherId: res.teacherId || '',
         note: String(data.get('note') || '').trim(),
         locked: data.has('locked')
       });
-      if (await syncWorkingToCloud(next)) dialog.close();
+      if (await syncWorkingToCloud(next)) {
+        toast('Đã lưu ô lịch thành công.');
+        dialog.close();
+      }
     } else if (form.id === 'entity-form') {
       const kind = form.dataset.kind;
       const id = form.dataset.id || uid();

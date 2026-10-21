@@ -16,6 +16,64 @@ export function findConflicts(state, cells = state.timetableCells) {
   return [...groups.values()].filter(group => new Set(group.map(c => c.classId)).size > 1);
 }
 
+export function assignTeacherToClassSubject(state, { classId, subjectId, teacherId }) {
+  if (!state.classes.some(c => c.id === classId)) {
+    throw Error('Lớp học không tồn tại.');
+  }
+  if (!state.subjects.some(s => s.id === subjectId)) {
+    throw Error('Môn học không tồn tại.');
+  }
+  if (teacherId && !state.teachers.some(t => t.id === teacherId)) {
+    throw Error('Giáo viên không tồn tại.');
+  }
+
+  const nextTeachers = (state.teachers || []).map(t => {
+    let assignments = Array.isArray(t.assignments) ? [...t.assignments] : [];
+    // If this teacher had this classId + subjectId, and is NOT the target teacher, remove it
+    if (t.id !== teacherId) {
+      assignments = assignments.filter(a => !(a.classId === classId && a.subjectId === subjectId));
+    } else {
+      if (!assignments.some(a => a.classId === classId && a.subjectId === subjectId)) {
+        assignments.push({ classId, subjectId });
+      }
+    }
+    return { ...t, assignments };
+  });
+
+  // Keep timetableCells synchronized for this class & subject
+  const nextCells = (state.timetableCells || []).map(cell => {
+    if (cell.classId === classId && cell.subjectId === subjectId) {
+      return { ...cell, teacherId: teacherId || '' };
+    }
+    return cell;
+  });
+
+  return {
+    ...state,
+    teachers: nextTeachers,
+    timetableCells: nextCells
+  };
+}
+
+export function unassignClassSubject(state, { classId, subjectId }) {
+  return assignTeacherToClassSubject(state, { classId, subjectId, teacherId: '' });
+}
+
+export function getAssignedTeacher(state, classId, subjectId) {
+  // First check teacher assignments
+  const byAssignment = (state.teachers || []).find(t =>
+    Array.isArray(t.assignments) && t.assignments.some(a => a.classId === classId && a.subjectId === subjectId)
+  );
+  if (byAssignment) return byAssignment;
+
+  // Fallback to timetable cells
+  const cell = (state.timetableCells || []).find(c => c.classId === classId && c.subjectId === subjectId && c.teacherId);
+  if (cell?.teacherId) {
+    return (state.teachers || []).find(t => t.id === cell.teacherId) || null;
+  }
+  return null;
+}
+
 export function putCell(state, cell, { allowConflict = false } = {}) {
   if (!state.classes.some(c => c.id === cell.classId) || !state.timeSlots.some(s => s.id === cell.timeSlotId) || !state.subjects.some(s => s.id === cell.subjectId)) {
     throw Error('Lớp, môn hoặc tiết học không hợp lệ.');
@@ -31,7 +89,22 @@ export function putCell(state, cell, { allowConflict = false } = {}) {
   if (!allowConflict && cell.teacherId && next.some(c => c.teacherId === cell.teacherId && c.timeSlotId === cell.timeSlotId)) {
     throw Error('Giáo viên đã có lịch tại lớp khác trong tiết này.');
   }
-  return { ...state, timetableCells: [...next, { id: previous?.id || uid(), ...cell }] };
+
+  // Two-way sync: update teacher assignments if teacher assigned
+  let nextTeachers = state.teachers;
+  if (cell.teacherId && cell.subjectId && cell.classId && Array.isArray(state.teachers)) {
+    nextTeachers = state.teachers.map(t => {
+      let assignments = Array.isArray(t.assignments) ? [...t.assignments] : [];
+      if (t.id === cell.teacherId) {
+        if (!assignments.some(a => a.classId === cell.classId && a.subjectId === cell.subjectId)) {
+          assignments.push({ classId: cell.classId, subjectId: cell.subjectId });
+        }
+      }
+      return { ...t, assignments };
+    });
+  }
+
+  return { ...state, teachers: nextTeachers, timetableCells: [...next, { id: previous?.id || uid(), ...cell }] };
 }
 
 export function deleteCell(state, classId, timeSlotId) {
@@ -83,10 +156,43 @@ export function publish(state) {
   };
 }
 
+export function normalizeState(state) {
+  if (!state || typeof state !== 'object') return state;
+  if (Array.isArray(state.classes)) {
+    for (const c of state.classes) {
+      if (c.homeroomTeacherId === undefined) {
+        c.homeroomTeacherId = null;
+      }
+    }
+  }
+  if (Array.isArray(state.teachers)) {
+    for (const t of state.teachers) {
+      if (!Array.isArray(t.assignments)) {
+        t.assignments = [];
+      }
+    }
+    if (Array.isArray(state.timetableCells)) {
+      for (const cell of state.timetableCells) {
+        if (cell.teacherId && cell.classId && cell.subjectId) {
+          const t = state.teachers.find(tea => tea.id === cell.teacherId);
+          if (t) {
+            if (!Array.isArray(t.assignments)) t.assignments = [];
+            if (!t.assignments.some(a => a.classId === cell.classId && a.subjectId === cell.subjectId)) {
+              t.assignments.push({ classId: cell.classId, subjectId: cell.subjectId });
+            }
+          }
+        }
+      }
+    }
+  }
+  return state;
+}
+
 const arrays = ['classes', 'subjects', 'teachers', 'timeSlots', 'timetableCells'];
 
 export function validateState(state) {
   if (!state || typeof state !== 'object') throw Error('Dữ liệu không hợp lệ.');
+  normalizeState(state);
   if (!state.school || typeof state.school.name !== 'string' || typeof state.school.year !== 'string' || typeof state.school.term !== 'string') {
     throw Error('Thiếu thông tin trường/năm học/học kỳ.');
   }
@@ -231,4 +337,130 @@ export function exportCsv(state) {
     ]);
   }
   return '\uFEFF' + rows.map(r => r.map(safe).join(',')).join('\r\n');
+}
+
+export function removeVietnameseTones(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D');
+}
+
+export function generateSubjectCode(name, existingSubjects = []) {
+  const clean = removeVietnameseTones(name).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  let base = clean.slice(0, 6) || 'MON';
+  let candidate = base;
+  let counter = 1;
+  const codes = new Set((existingSubjects || []).map(s => String(s.code || '').toUpperCase()));
+  while (codes.has(candidate)) {
+    candidate = `${base.slice(0, 4)}${counter++}`;
+  }
+  return candidate;
+}
+
+export function generateTeacherCode(fullName, existingTeachers = []) {
+  const clean = removeVietnameseTones(fullName).trim();
+  const words = clean.split(/\s+/).filter(Boolean);
+  let base = words.map(w => w[0]?.toUpperCase() || '').join('');
+  if (base.length < 2) base = clean.slice(0, 3).toUpperCase() || 'GV';
+  let candidate = base;
+  let counter = 1;
+  const codes = new Set((existingTeachers || []).map(t => String(t.code || '').toUpperCase()));
+  while (codes.has(candidate)) {
+    candidate = `${base}${counter++}`;
+  }
+  return candidate;
+}
+
+const PALETTE = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#0284c7', '#dc2626', '#0d9488', '#ea580c'];
+
+export function resolveSubjectAndTeacher(state, { quickLine = '', subjectInput = '', teacherInput = '', subjectId = '', teacherId = '' } = {}) {
+  const draft = clone(state);
+  draft.subjects = draft.subjects || [];
+  draft.teachers = draft.teachers || [];
+
+  let rawSub = String(subjectInput || '').trim();
+  let rawTea = String(teacherInput || '').trim();
+
+  // If quickLine is given (e.g. "Toán - Nguyễn Văn A" or "VAN - Tran Thi B")
+  if (quickLine && quickLine.trim()) {
+    const parts = quickLine.trim().split(/[-–—]/).map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 1) rawSub = parts[0];
+    if (parts.length >= 2) rawTea = parts[1];
+  }
+
+  // If text inputs are empty, fallback to dropdown IDs
+  if (!rawSub && subjectId) {
+    const existing = draft.subjects.find(s => s.id === subjectId);
+    if (existing) rawSub = existing.id;
+  }
+  if (!rawTea && teacherId) {
+    const existing = draft.teachers.find(t => t.id === teacherId);
+    if (existing) rawTea = existing.id;
+  }
+
+  if (!rawSub) {
+    return { subjectId: '', teacherId: '', state: draft };
+  }
+
+  // 1. Resolve Subject
+  let matchedSub = draft.subjects.find(s => s.id === rawSub);
+  if (!matchedSub) {
+    const lower = rawSub.toLowerCase();
+    matchedSub = draft.subjects.find(s => (s.code || '').toLowerCase() === lower);
+  }
+  if (!matchedSub) {
+    const lower = rawSub.toLowerCase();
+    matchedSub = draft.subjects.find(s => (s.name || '').toLowerCase() === lower);
+  }
+  if (!matchedSub) {
+    const lower = rawSub.toLowerCase();
+    matchedSub = draft.subjects.find(s => (s.name || '').toLowerCase().includes(lower) || lower.includes((s.name || '').toLowerCase()));
+  }
+  if (!matchedSub) {
+    // Auto-create new subject
+    const newSub = {
+      id: uid(),
+      code: generateSubjectCode(rawSub, draft.subjects),
+      name: rawSub,
+      color: PALETTE[draft.subjects.length % PALETTE.length]
+    };
+    draft.subjects.push(newSub);
+    matchedSub = newSub;
+  }
+
+  // 2. Resolve Teacher
+  let matchedTea = null;
+  if (rawTea) {
+    matchedTea = draft.teachers.find(t => t.id === rawTea);
+    if (!matchedTea) {
+      const lower = rawTea.toLowerCase();
+      matchedTea = draft.teachers.find(t => (t.code || '').toLowerCase() === lower);
+    }
+    if (!matchedTea) {
+      const lower = rawTea.toLowerCase();
+      matchedTea = draft.teachers.find(t => (t.fullName || '').toLowerCase() === lower);
+    }
+    if (!matchedTea) {
+      const lower = rawTea.toLowerCase();
+      matchedTea = draft.teachers.find(t => (t.fullName || '').toLowerCase().includes(lower) || lower.includes((t.fullName || '').toLowerCase()));
+    }
+    if (!matchedTea) {
+      // Auto-create new teacher
+      const newTea = {
+        id: uid(),
+        code: generateTeacherCode(rawTea, draft.teachers),
+        fullName: rawTea
+      };
+      draft.teachers.push(newTea);
+      matchedTea = newTea;
+    }
+  }
+
+  return {
+    subjectId: matchedSub ? matchedSub.id : '',
+    teacherId: matchedTea ? matchedTea.id : '',
+    state: draft
+  };
 }

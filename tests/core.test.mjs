@@ -13,7 +13,12 @@ import {
   validateState,
   validateSnapshot,
   parseBackup,
-  exportCsv
+  exportCsv,
+  resolveSubjectAndTeacher,
+  assignTeacherToClassSubject,
+  unassignClassSubject,
+  getAssignedTeacher,
+  normalizeState
 } from '../src/core.js';
 
 test('1. Khung gốc: 17 lớp, 45 tiết, 289 ô cố định, giờ bắt đầu/kết thúc đúng nguồn', () => {
@@ -381,6 +386,113 @@ test('23. Chuyển đổi không gian làm việc (Workspace Switcher): Chỉ ch
   const visitingTeacher = { role: 'TEACHER', teacherId: 'gv3', isVisiting: true, homeroomClassIds: [] };
   const visWs = getWorkspaces(visitingTeacher);
   assert.deepEqual(visWs, ['VISITING', 'TEACHER']);
+});
+
+test('24. Chức năng nhập liệu trực tiếp: gõ môn & giáo viên, nhận diện mã/tên hoặc tự tạo mới hợp lệ', () => {
+  const state = clone(SEED);
+  state.teachers = [
+    { id: 'tea_an', code: 'DMA', fullName: 'Đoàn Minh An' },
+    { id: 'tea_lan', code: 'NTL', fullName: 'Nguyễn Thị Lan' }
+  ];
+
+  // 1. Gõ tên môn và giáo viên có sẵn (VD: Toán và giáo viên)
+  const res1 = resolveSubjectAndTeacher(state, {
+    subjectInput: 'Toán',
+    teacherInput: 'Đoàn Minh An'
+  });
+  assert.ok(res1.subjectId);
+  assert.equal(res1.subjectId, 'subj_toan');
+  assert.equal(res1.teacherId, 'tea_an');
+
+  // 2. Gõ nhanh dạng 1 dòng "Môn - Giáo viên"
+  const res2 = resolveSubjectAndTeacher(state, {
+    quickLine: 'Văn - NTL'
+  });
+  assert.ok(res2.subjectId);
+  assert.equal(res2.teacherId, 'tea_lan');
+
+  // 3. Gõ môn hoàn toàn mới và giáo viên mới: hệ thống tự động sinh môn và giáo viên hợp lệ
+  const res3 = resolveSubjectAndTeacher(state, {
+    subjectInput: 'Lập trình Python',
+    teacherInput: 'Hoàng Văn Bách'
+  });
+  assert.ok(res3.subjectId);
+  assert.ok(res3.teacherId);
+  assert.ok(res3.state.subjects.some(s => s.name === 'Lập trình Python'));
+  assert.ok(res3.state.teachers.some(t => t.fullName === 'Hoàng Văn Bách'));
+
+  // Kiểm tra state sau khi sinh có vượt qua validateState không
+  assert.doesNotThrow(() => validateState(res3.state));
+});
+
+test('25. Chuẩn hóa Data Model: homeroomTeacherId cho Classes và assignments cho Teachers', () => {
+  let state = normalizeState(clone(SEED));
+  // Every class has homeroomTeacherId (string or null)
+  for (const c of state.classes) {
+    assert.ok('homeroomTeacherId' in c);
+  }
+
+  // Teacher has assignments array
+  state.teachers.push({
+    id: 'tea_demo',
+    code: 'DEMO',
+    fullName: 'Cô Demo',
+    assignments: []
+  });
+  assert.ok(Array.isArray(state.teachers[0].assignments));
+  assert.doesNotThrow(() => validateState(state));
+});
+
+test('26. Đồng bộ hóa 2 chiều: gán giáo viên A dạy môn X ở lớp Y cập nhật assignments của A; thay thế giáo viên B tự động xóa khỏi assignments của B', () => {
+  let state = normalizeState(clone(SEED));
+  state.teachers = [
+    { id: 'tea_a', code: 'GVA', fullName: 'Thầy A', assignments: [] },
+    { id: 'tea_b', code: 'GVB', fullName: 'Cô B', assignments: [] }
+  ];
+
+  // Gán giáo viên A dạy môn Toán ở lớp 6A1
+  state = assignTeacherToClassSubject(state, {
+    classId: 'cls_6a1',
+    subjectId: 'subj_toan',
+    teacherId: 'tea_a'
+  });
+
+  let teaA = state.teachers.find(t => t.id === 'tea_a');
+  let teaB = state.teachers.find(t => t.id === 'tea_b');
+  assert.equal(teaA.assignments.length, 1);
+  assert.deepEqual(teaA.assignments[0], { classId: 'cls_6a1', subjectId: 'subj_toan' });
+  assert.equal(getAssignedTeacher(state, 'cls_6a1', 'subj_toan')?.id, 'tea_a');
+
+  // Gán tiếp giáo viên B thay thế giáo viên A dạy môn Toán ở lớp 6A1
+  state = assignTeacherToClassSubject(state, {
+    classId: 'cls_6a1',
+    subjectId: 'subj_toan',
+    teacherId: 'tea_b'
+  });
+
+  teaA = state.teachers.find(t => t.id === 'tea_a');
+  teaB = state.teachers.find(t => t.id === 'tea_b');
+  // assignments của A tự động bị xóa phân công này
+  assert.equal(teaA.assignments.some(a => a.classId === 'cls_6a1' && a.subjectId === 'subj_toan'), false);
+  // assignments của B có phân công này
+  assert.equal(teaB.assignments.some(a => a.classId === 'cls_6a1' && a.subjectId === 'subj_toan'), true);
+  assert.equal(getAssignedTeacher(state, 'cls_6a1', 'subj_toan')?.id, 'tea_b');
+});
+
+test('27. Bỏ gán / Tẩy phân công: unassignClassSubject xóa khỏi assignments và giải phóng ô', () => {
+  let state = normalizeState(clone(SEED));
+  state.teachers = [
+    { id: 'tea_b', code: 'GVB', fullName: 'Cô B', assignments: [{ classId: 'cls_6a1', subjectId: 'subj_toan' }] }
+  ];
+
+  state = unassignClassSubject(state, {
+    classId: 'cls_6a1',
+    subjectId: 'subj_toan'
+  });
+
+  const teaB = state.teachers.find(t => t.id === 'tea_b');
+  assert.equal(teaB.assignments.length, 0);
+  assert.equal(getAssignedTeacher(state, 'cls_6a1', 'subj_toan'), null);
 });
 
 
