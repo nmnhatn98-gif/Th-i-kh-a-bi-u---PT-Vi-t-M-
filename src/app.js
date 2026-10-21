@@ -1421,8 +1421,9 @@ function renderSchoolPage() {
 function renderMatrixSection(s) {
   const classes = (s.classes || []).filter(c => !grade || (grade === 'THCS' ? c.grade <= 9 : grade === 'THPT' ? c.grade >= 10 : String(c.grade) === grade));
   const isReadonly = !canEditWorking();
-  const targetHighlightId = (brushMode === 'brush' && brushTeacherId) ? brushTeacherId : (selectedTeacherHighlight || teacher);
-  const targetTeacherName = targetHighlightId ? text(s.teachers || [], targetHighlightId, 'fullName') : '';
+  const targetTeacherId = (brushMode === 'brush' && brushTeacherId) ? brushTeacherId : (selectedTeacherHighlight || teacher);
+  const targetHighlightId = targetTeacherId;
+  const targetTeacherName = targetTeacherId ? text(s.teachers || [], targetTeacherId, 'fullName') : '';
 
   let tableHeaderHtml = '';
   let tableBodyHtml = '';
