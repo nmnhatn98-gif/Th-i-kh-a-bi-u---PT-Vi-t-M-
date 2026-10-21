@@ -1,0 +1,8 @@
+{
+  "name": "TKB — Thời khóa biểu toàn trường",
+  "description": "Bản nền mới: ma trận 17 lớp, xếp môn và giáo viên trực tiếp, không phân công chuyên môn hoặc định mức giáo viên.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

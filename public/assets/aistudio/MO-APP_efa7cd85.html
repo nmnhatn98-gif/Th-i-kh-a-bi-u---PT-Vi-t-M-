@@ -1,0 +1,3656 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#143f37">
+  <title>TKB • Thời khóa biểu toàn trường</title>
+  <style>@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap');
+:root{font-family:'Be Vietnam Pro',Arial,sans-serif;color:#233b36;background:#f3f5f1;font-size:13px;--green:#174c40;--border:#dce3dc;--muted:#7b8981;--subject:#edf3eb}*{box-sizing:border-box}body{margin:0}button,input,select{font:inherit}button{cursor:pointer;border:1px solid #d9e1da;background:#fff;border-radius:7px;padding:9px 12px;color:#354e44;font-weight:500;transition:background .15s}button:hover{background:#edf3eb}button:disabled{cursor:default;opacity:.4}button:focus-visible,a:focus-visible{outline:3px solid #b4b951;outline-offset:2px}.primary{background:var(--green);border-color:var(--green);color:#fff}.primary:hover{background:#246251}input,select{border:1px solid #d9e1da;border-radius:7px;padding:10px;background:#fff;color:#344b41;max-width:100%}input:focus,select:focus{outline:2px solid #94b4a5;outline-offset:1px}select{max-width:240px}.sidebar{width:220px;background:#143f37;color:#fff;position:fixed;inset:0 auto 0 0;display:flex;flex-direction:column;padding:32px 16px;z-index:40}.brand{display:flex;align-items:center;gap:12px;color:#fff;text-decoration:none;font-size:27px;font-weight:800;letter-spacing:1px;padding:0 12px}.brand-icon{width:40px;height:43px;display:grid;place-items:center;background:#d8e8ac;color:#214737;border-radius:10px;font-size:29px}.brand-sub{display:block;font-size:7px;letter-spacing:1.8px;font-weight:500;opacity:.65;margin-top:3px}.sidebar-label{font-size:9px;color:#94b3a8;letter-spacing:1.4px;padding:0 14px;margin:44px 0 15px}.nav-button{width:100%;display:flex;align-items:center;gap:12px;text-align:left;color:#b9cfc5;background:none;border:none;font-size:12px;margin-bottom:7px;padding:13px 14px}.nav-button>span{font-size:20px;line-height:1}.nav-button:hover{background:#245347;color:#fff}.nav-button.active{background:#dce8b4;color:#254735;font-weight:700}.badge{margin-left:auto;background:#fae3a5;border-radius:10px;padding:1px 6px;font-size:10px}.sidebar-bottom{margin-top:auto;padding:20px 12px 0;font-size:10px;color:#b9cfc5;border-top:1px solid #386054}.status-dot{display:inline-block;width:6px;height:6px;background:#c2d28d;border-radius:50%;margin-right:5px}.sidebar-bottom p{font-size:10px;line-height:1.9;opacity:.65}.sidebar-backup{background:none;border:1px solid #557668;color:#d6e2d7;font-size:10px;width:100%;margin-top:8px}.workspace{margin-left:220px}.topbar{height:65px;border-bottom:1px solid var(--border);background:#ffffffc7;display:flex;align-items:center;justify-content:space-between;padding:0 32px;font-size:12px;font-weight:600}.topbar>div{display:flex;gap:12px;align-items:center}.year{font-size:10px;color:#7b8981;font-weight:400}.icon-button{padding:7px 10px;background:transparent}.topbar .icon-button{border:none}main{padding:32px;max-width:2200px;margin:auto}.page-heading{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:25px}.eyebrow{color:#7b8d76;font-size:9px;letter-spacing:1.8px;font-weight:700}h1{font-size:25px;letter-spacing:-1px;font-weight:600;margin:8px 0 9px;color:#263e33}p{line-height:1.8;margin:7px 0}.page-heading p{font-size:11px;color:var(--muted)}.heading-actions{display:flex;gap:7px;flex-wrap:wrap}.heading-actions button{font-size:10px;padding:10px 12px}.stats{display:grid;grid-template-columns:1fr 1fr 1.45fr 1.45fr;gap:14px;margin-bottom:25px}.stats>div{border:1px solid var(--border);background:#fff;border-radius:10px;padding:18px;display:flex;align-items:center;gap:15px}.stat-icon{border-radius:9px;background:#f0f4e9;color:#6c855a;width:38px;height:40px;display:grid;place-items:center;font-size:22px}.stats strong{display:block;font-size:23px;font-weight:600;color:#2e4b3b}.stats strong small{font-size:12px;color:#9aa493;font-weight:400}.stats div div>span{font-size:9px;display:block;color:#7a8879;margin-top:3px}.stats>div.warning-stat{background:#fff5e7}.matrix-panel{background:#fff;border:1px solid #d8e0d5;border-radius:12px;overflow:hidden;box-shadow:0 4px 15px #233b3605}.panel-toolbar{padding:17px 20px;display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid #edf0e9}.segmented{background:#f0f3ec;display:flex;gap:2px;padding:4px;border-radius:8px}.segmented button{border:0;background:transparent;font-size:10px;padding:8px 12px;color:#899283}.segmented button.selected{background:#fff;color:#294e3d;box-shadow:0 1px 4px #233b3610}.toolbar-right{display:flex;gap:8px;align-items:center}.toolbar-right select{font-size:10px;max-width:210px}.search{display:flex;align-items:center;border:1px solid #dde4db;border-radius:7px;padding-left:10px}.search input{border:0;font-size:10px;width:185px;padding:10px}.search span{font-size:20px;color:#91a18d}.toolbar-right .icon-button{font-size:17px;padding:5px 9px}.grade-toolbar{display:flex;align-items:center;gap:6px;padding:12px 20px;background:#fafbf8;flex-wrap:wrap;border-bottom:1px solid var(--border)}.grade-toolbar>span:first-child{font-size:10px;color:#83917e;margin-right:9px}.grade-toolbar button{border:0;font-size:9px;padding:6px 10px;background:transparent;color:#73826f}.grade-toolbar button.selected{background:#e6eed8;color:#355535;font-weight:700}.class-count{margin-left:auto;font-size:9px;color:#87947f}.matrix-caption{padding:25px 20px 19px;display:flex;justify-content:space-between;align-items:end;gap:20px}.live-pill{display:inline-block;font-size:8px;letter-spacing:1px;font-weight:700;color:#8c7849;background:#f6f0df;padding:5px 9px;border-radius:4px}.live-pill.published{background:#e2edda;color:#356539}.matrix-caption h2{font-size:17px;letter-spacing:.4px;margin:12px 0 6px;font-weight:700}.matrix-caption p{color:#8b9585;font-size:9px}.matrix-help{max-width:270px;text-align:right}.matrix-scroll{overflow:auto;max-height:65vh;position:relative;border-top:1px solid #d6dfd1;scrollbar-width:thin;scrollbar-color:#b5c3ad #f2f5ed}.matrix{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;text-align:center;font-size:10px;table-layout:fixed}.matrix th,.matrix td{border-right:1px solid #dce3d6;border-bottom:1px solid #dce3d6}.matrix thead th{position:sticky;top:0;z-index:10;background:#eff3e9;padding:10px 7px;height:100px;vertical-align:top}.matrix .class-header{width:172px;min-width:172px}.class-header>strong{display:block;font-size:11px;color:#32513a}.class-header>span{font-size:8px;color:#90a083;display:block;margin:5px 0 8px}.class-header>div{text-align:left;font-size:8px;padding-top:6px;border-top:1px solid #dbe4d1;color:#7d8d70;font-weight:400}.class-header>div span{display:block;line-height:1.8;max-width:155px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.matrix .sticky-day{position:sticky;left:0;width:61px;min-width:61px;z-index:6;background:#f0f4eb}.matrix .sticky-session{position:sticky;left:61px;width:48px;min-width:48px;z-index:6;background:#f6f6ed}.matrix .sticky-period{position:sticky;left:109px;width:36px;min-width:36px;z-index:6;background:#fafbf6}.matrix .sticky-time{position:sticky;left:145px;width:67px;min-width:67px;z-index:6;background:#fafbf6}.matrix thead .sticky-day,.matrix thead .sticky-session,.matrix thead .sticky-period,.matrix thead .sticky-time{z-index:20;padding-top:20px;font-size:9px}.day-name{font-size:9px;font-weight:700;letter-spacing:1px}.session{font-size:8px;font-weight:600}.matrix .session.morning{background:#f6f0da;color:#9e8c55}.matrix .session.afternoon{background:#e8f0e2;color:#69835a}.period{font-size:10px;color:#7a8e6e}.time{font-size:8px;color:#708564;line-height:1.7}.time span{color:#9ca891}.lesson{height:65px;background:white;padding:3px;vertical-align:middle;transition:opacity .12s}.lesson button{width:100%;height:100%;min-height:58px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;font-size:10px;border:0;border-radius:4px;background:color-mix(in srgb,var(--subject) 13%,white);color:#2c4434;padding:7px 5px}.lesson.filled button{border-left:2px solid color-mix(in srgb,var(--subject) 45%,white)}.lesson button:hover{outline:2px solid #a8b99b;background:color-mix(in srgb,var(--subject) 23%,white)}.lesson button:disabled{opacity:1}.subject-name{font-weight:600;font-size:9px;max-width:150px}.teacher-name{font-size:8px;color:#7c8a77}.cell-note{font-size:7px;color:#93a089;max-width:140px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}.lock{font-size:8px;opacity:.5;margin-left:3px}.empty-mark{color:#dce3d6;font-size:16px}.lesson.empty button{background:transparent}.lesson.dim{opacity:.2}.lesson.conflict button{outline:2px solid #db9479;background:#fff1ea}.day-start>td,.day-start>th{border-top:2px solid #b9c9ab}.afternoon-start>td,.afternoon-start>th{border-top:2px solid #d3dfc8}.matrix.compact .class-header{width:140px;min-width:140px}.matrix.compact .lesson{height:57px}.matrix.compact .lesson button{min-height:50px}.matrix.compact .class-header>div span{max-width:123px}.matrix-bottom{padding:13px 20px;font-size:8px;color:#93a087;display:flex;justify-content:space-between;gap:12px}.matrix-bottom i{display:inline-block;width:5px;height:5px;background:#8ca476;border-radius:50%;margin-right:5px}footer{display:flex;justify-content:space-between;font-size:8px;color:#92a08a;padding:22px 0}footer button{border:0;background:transparent;font-size:8px;padding:0;color:#5f7b56}.card{border:1px solid var(--border);background:#fff;border-radius:10px;padding:23px;margin-bottom:18px}.card h2{font-size:16px;margin:0 0 14px}.card h3{font-size:14px}.card p{color:#7d8c76;font-size:11px}.card-title{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:15px}.card-title h2{margin:0}.card-title small{font-size:11px;color:#9aa58e;margin-left:7px}.notice,.alert{background:#eff3e8;border:1px solid #dbe5ce;border-radius:8px;padding:15px 18px;margin-bottom:18px;font-size:11px;line-height:1.9;color:#657852}.alert{background:#fff1dd;border-color:#e9c48b;color:#875a28}.catalog-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.catalog-grid .card{padding:18px}.catalog-list{max-height:65vh;overflow:auto}.catalog-row{display:flex;align-items:center;gap:7px;padding:14px 0;border-bottom:1px solid #edf0e7}.catalog-row>div{flex:1;min-width:0}.catalog-row strong{font-size:11px}.catalog-row small{display:block;color:#99a38e;font-size:9px;margin-top:5px}.catalog-row button{font-size:10px;padding:5px 8px}.subject-dot{display:inline-block;width:8px;height:8px;border-radius:3px;margin-right:7px}.danger-link{color:#ba6a50;background:transparent;border-color:transparent}.danger-link:hover{background:#fff1e9}.empty-state{text-align:center;padding:45px 15px;color:#839578}.empty-state>span{display:inline-grid;place-items:center;width:60px;height:60px;border-radius:20px;background:#f1f5ea;color:#9bb185;font-size:30px}.empty-state h3{font-size:14px;color:#5d7650;margin:18px 0 8px}.empty-state p{font-size:11px}.conflict-row,.version-row{display:flex;align-items:center;gap:15px;padding:20px 0;border-bottom:1px solid var(--border)}.conflict-row strong,.version-row strong{font-size:12px}.conflict-row p,.version-row p{font-size:10px;margin:5px 0 0}.warning-icon{background:#f7ead3;border-radius:50%;padding:10px;color:#a57331}.conflict-links{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}.conflict-links button{font-size:10px}.version-row>div{flex:1}.published-card{display:flex;justify-content:space-between;gap:20px;background:#f4f7ef;border-radius:10px;padding:22px}.published-card>div:last-child{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.published-card h3{margin-bottom:5px}.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.button-row{display:flex;gap:10px;flex-wrap:wrap;margin:20px 0}dl{display:grid;grid-template-columns:100px 1fr;gap:15px;margin:25px 0}dt{font-size:11px;color:#93a087}dd{margin:0;font-size:12px}.muted{color:#8a9880;font-size:11px}dialog{border:1px solid #d8e2cf;border-radius:15px;padding:28px;width:min(490px,calc(100vw - 28px));max-height:90vh;overflow:auto;color:#344b3d;box-shadow:0 20px 80px #0e292b33}dialog::backdrop{background:#132f2b66;backdrop-filter:blur(3px)}.dialog-title{display:flex;align-items:start;justify-content:space-between;gap:18px;margin-bottom:22px}.dialog-title h2{font-size:21px;margin:7px 0}.dialog-title p{font-size:10px;color:#90a083}.dialog-title .icon-button{border:0;font-size:22px;padding:0 5px}dialog label{display:block;font-size:11px;margin:16px 0 0;font-weight:600}dialog label input,dialog label select{display:block;width:100%;max-width:100%;margin-top:7px;font-weight:400}dialog input[type=color]{height:42px;padding:3px}fieldset{border:0;padding:0;margin:0}fieldset:disabled{opacity:.5}.field-help{font-size:10px;color:#95a189;margin-top:10px}.checkbox{display:flex;align-items:center;gap:8px}.checkbox input{display:inline-block;width:auto;margin:0}.dialog-actions{display:flex;gap:8px;justify-content:flex-end;border-top:1px solid #e6ecdF;margin-top:25px;padding-top:20px;flex-wrap:wrap}.dialog-actions button{font-size:11px}.form-error{color:#b45e44;font-size:11px;margin-top:15px;line-height:1.8}.import-counts{background:#eff4e6;padding:20px;margin:20px 0;border-radius:8px;font-weight:600}#toast{position:fixed;bottom:25px;left:50%;transform:translate(-50%,15px);background:#183f35;color:#fff;border-radius:10px;padding:15px 22px;max-width:90vw;z-index:100;box-shadow:0 5px 25px #153f3330;opacity:0;pointer-events:none;transition:.2s;font-size:12px}#toast.visible{opacity:1;transform:translate(-50%,0)}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(min-width:1700px){.stats{grid-template-columns:1fr 1fr 1.3fr 1.3fr}.matrix-scroll{max-height:70vh}}@media(max-width:1200px){.sidebar{width:180px;padding:25px 10px}.workspace{margin-left:180px}main{padding:22px}.topbar{padding:0 22px}.page-heading{align-items:start;flex-direction:column}.heading-actions{align-self:flex-end}.stats{gap:9px}.stats>div{padding:13px;gap:10px}.stats strong{font-size:20px}.stat-icon{width:30px;height:32px}.panel-toolbar{flex-wrap:wrap}.toolbar-right{flex:1;justify-content:end}.catalog-grid{grid-template-columns:1fr 1fr}.catalog-grid .card:last-child{grid-column:1/-1}}@media(max-width:760px){.sidebar{position:static;width:100%;padding:14px;display:block}.brand{font-size:22px;padding:0 6px}.brand-icon{height:34px;width:34px}.brand-sub{font-size:6px}.sidebar-label,.sidebar-bottom{display:none}.sidebar nav{display:flex;overflow:auto;gap:5px;margin-top:18px}.nav-button{white-space:nowrap;width:auto;padding:9px;font-size:10px;gap:6px;margin:0}.nav-button>span{font-size:14px}.workspace{margin:0}.topbar{padding:0 16px;height:48px;font-size:10px}.topbar>span{max-width:55%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.year{font-size:8px}main{padding:20px 12px}h1{font-size:21px}.page-heading{gap:12px;margin-bottom:18px}.heading-actions{align-self:auto}.heading-actions button{font-size:9px;padding:8px}.stats{grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px}.stats>div{padding:12px}.stats strong{font-size:18px}.stats div div>span{font-size:8px}.stat-icon{font-size:18px}.panel-toolbar{padding:12px;gap:12px}.toolbar-right{justify-content:start;flex-wrap:wrap;gap:6px}.toolbar-right select{max-width:180px}.search input{width:150px}.grade-toolbar{padding:10px;gap:2px}.grade-toolbar button{font-size:8px;padding:6px 7px}.grade-toolbar>span:first-child{display:none}.matrix-caption{padding:16px 12px;display:block}.matrix-caption h2{font-size:14px}.matrix-help{text-align:left;max-width:none}.matrix-scroll{max-height:65vh}.matrix .sticky-day{width:42px;min-width:42px}.matrix .sticky-session{left:42px;width:35px;min-width:35px}.matrix .sticky-period{left:77px;width:27px;min-width:27px}.matrix .sticky-time{left:104px;width:55px;min-width:55px}.day-name{writing-mode:vertical-rl;font-size:8px}.matrix-bottom{padding:12px;flex-direction:column;gap:5px}.catalog-grid,.settings-grid{grid-template-columns:1fr;gap:0}.catalog-grid .card:last-child{grid-column:auto}.published-card{flex-direction:column}.card{padding:18px}.conflict-row{flex-wrap:wrap}.conflict-links{margin-left:0}footer{gap:15px;line-height:1.8}.matrix.compact .class-header{min-width:125px;width:125px}}
+@media print{@page{size:A3 landscape;margin:7mm}body{background:#fff}.sidebar,.topbar,.page-heading,.stats,.panel-toolbar,.grade-toolbar,.heading-actions,.matrix-help,.matrix-bottom,footer,dialog,#toast,.alert{display:none!important}.workspace{margin:0}main{padding:0}.matrix-panel{border:0;border-radius:0}.matrix-caption{padding:3mm;text-align:center;display:block}.matrix-scroll{overflow:visible;max-height:none;border:0}.matrix{width:100%;min-width:0;font-size:5pt;table-layout:fixed}.matrix th,.matrix td{position:static!important;min-width:0!important;width:auto!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}.matrix thead{display:table-header-group}.matrix thead th{height:auto;padding:3px 1px}.matrix thead th:nth-child(1){width:3% !important}.matrix thead th:nth-child(2){width:3% !important}.matrix thead th:nth-child(3){width:2% !important}.matrix thead th:nth-child(4){width:4% !important}.class-header>strong{font-size:6pt}.class-header>span{font-size:4pt;margin:2px}.class-header>div{font-size:4pt;padding-top:2px}.class-header>div span{white-space:normal}.matrix .lesson,.matrix.compact .lesson{height:auto;padding:1px}.matrix .lesson button,.matrix.compact .lesson button{padding:2px 1px;min-height:0;gap:1px;border:0}.subject-name{font-size:4.5pt}.teacher-name{font-size:4pt}.cell-note{font-size:3.5pt;white-space:normal}.time,.period,.session,.day-name{font-size:4pt}.lesson.dim{opacity:1}.empty-mark{visibility:hidden}tr{break-inside:avoid}.card{break-inside:avoid}.matrix-caption .live-pill{font-size:5pt}.notice{font-size:7pt}}
+</style>
+</head>
+<body>
+  <div id="app"></div>
+  <dialog id="editor"></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script type="module">// Danh mục và khung ma trận từ repo gốc, commit 1c85b67. Không phải dữ liệu Firebase trực tiếp.
+const SEED = {
+  "schemaVersion": 1,
+  "school": {
+    "name": "Trường THCS & THPT",
+    "year": "Năm học 2026-2027",
+    "term": "HK1",
+    "appliedDate": ""
+  },
+  "classes": [
+    {
+      "id": "cls_6a1",
+      "code": "6A1",
+      "name": "Lớp 6A1",
+      "grade": 6,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_6a2",
+      "code": "6A2",
+      "name": "Lớp 6A2",
+      "grade": 6,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_6a3",
+      "code": "6A3",
+      "name": "Lớp 6A3",
+      "grade": 6,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_7a1",
+      "code": "7A1",
+      "name": "Lớp 7A1",
+      "grade": 7,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_7a2",
+      "code": "7A2",
+      "name": "Lớp 7A2",
+      "grade": 7,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_7a3",
+      "code": "7A3",
+      "name": "Lớp 7A3",
+      "grade": 7,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_8a1",
+      "code": "8A1",
+      "name": "Lớp 8A1",
+      "grade": 8,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_8a2",
+      "code": "8A2",
+      "name": "Lớp 8A2",
+      "grade": 8,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_8a3",
+      "code": "8A3",
+      "name": "Lớp 8A3",
+      "grade": 8,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_9a1",
+      "code": "9A1",
+      "name": "Lớp 9A1",
+      "grade": 9,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_9a2",
+      "code": "9A2",
+      "name": "Lớp 9A2",
+      "grade": 9,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_9a3",
+      "code": "9A3",
+      "name": "Lớp 9A3",
+      "grade": 9,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_10tn",
+      "code": "10TN",
+      "name": "Lớp 10TN",
+      "grade": 10,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_10xh",
+      "code": "10XH",
+      "name": "Lớp 10XH",
+      "grade": 10,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_11",
+      "code": "11",
+      "name": "Lớp 11",
+      "grade": 11,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_12tn",
+      "code": "12TN",
+      "name": "Lớp 12TN",
+      "grade": 12,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    },
+    {
+      "id": "cls_12xh",
+      "code": "12XH",
+      "name": "Lớp 12XH",
+      "grade": 12,
+      "homeroomTeacherId": "",
+      "coHomeroomTeacherId": ""
+    }
+  ],
+  "subjects": [
+    {
+      "id": "subj_toan",
+      "code": "TOAN",
+      "name": "Toán",
+      "color": "#2563eb"
+    },
+    {
+      "id": "subj_phy",
+      "code": "VAT_LI",
+      "name": "Vật lí",
+      "color": "#0284c7"
+    },
+    {
+      "id": "subj_khtn_li",
+      "code": "KHTN_LI",
+      "name": "KHTN - Lí",
+      "color": "#0ea5e9"
+    },
+    {
+      "id": "subj_che",
+      "code": "HOA_HOC",
+      "name": "Hóa học",
+      "color": "#0d9488"
+    },
+    {
+      "id": "subj_knht_hoa",
+      "code": "KNHT_HOA",
+      "name": "KNHT-Hóa",
+      "color": "#14b8a6"
+    },
+    {
+      "id": "subj_bio",
+      "code": "SINH_HOC",
+      "name": "Sinh học",
+      "color": "#16a34a"
+    },
+    {
+      "id": "subj_khtn_sinh",
+      "code": "KHTN_SINH",
+      "name": "KHTN-sinh",
+      "color": "#22c55e"
+    },
+    {
+      "id": "subj_van",
+      "code": "VAN",
+      "name": "Ngữ văn",
+      "color": "#e11d48"
+    },
+    {
+      "id": "subj_pe",
+      "code": "THE_DUC",
+      "name": "Thể dục",
+      "color": "#ea580c"
+    },
+    {
+      "id": "subj_eng",
+      "code": "TIENG_ANH",
+      "name": "Tiếng anh",
+      "color": "#9333ea"
+    },
+    {
+      "id": "subj_tin",
+      "code": "TIN_HOC",
+      "name": "Tin học",
+      "color": "#0891b2"
+    },
+    {
+      "id": "subj_stem",
+      "code": "AI_ROBOTICS",
+      "name": "AI-robotics",
+      "color": "#f59e0b"
+    },
+    {
+      "id": "subj_giao_duc_ai",
+      "code": "GD_AI",
+      "name": "Giáo dục AI",
+      "color": "#d97706"
+    },
+    {
+      "id": "subj_ls_dia",
+      "code": "LS_DL",
+      "name": "LS-ĐL",
+      "color": "#ca8a04"
+    },
+    {
+      "id": "subj_dia_thpt",
+      "code": "DIA_LI",
+      "name": "Địa lí",
+      "color": "#b45309"
+    },
+    {
+      "id": "subj_ls_thpt",
+      "code": "LICH_SU",
+      "name": "Lịch sử",
+      "color": "#c2410c"
+    },
+    {
+      "id": "subj_am_nhac",
+      "code": "AM_NHAC",
+      "name": "Âm nhạc",
+      "color": "#ec4899"
+    },
+    {
+      "id": "subj_my_thuat",
+      "code": "MY_THUAT",
+      "name": "Mỹ thuật",
+      "color": "#db2777"
+    },
+    {
+      "id": "subj_gddp",
+      "code": "GDDP",
+      "name": "GDĐP",
+      "color": "#7c3aed"
+    },
+    {
+      "id": "subj_ta_esl",
+      "code": "TA_ESL",
+      "name": "TA ESL",
+      "color": "#6366f1"
+    },
+    {
+      "id": "subj_clb",
+      "code": "CLB",
+      "name": "CLB",
+      "color": "#059669"
+    },
+    {
+      "id": "subj_hdtn_hn",
+      "code": "HDTN_HN",
+      "name": "HĐTN - HN",
+      "color": "#4f46e5"
+    },
+    {
+      "id": "subj_special_chao_co",
+      "code": "CHAO_CO",
+      "name": "Chào cờ",
+      "color": "#dc2626"
+    }
+  ],
+  "teachers": [],
+  "timeSlots": [
+    {
+      "id": "ts_d2_m_1",
+      "dayOfWeek": 2,
+      "dayName": "Thứ 2",
+      "session": "MORNING",
+      "period": 1,
+      "globalPeriod": 1,
+      "startTime": "07:45",
+      "endTime": "08:30"
+    },
+    {
+      "id": "ts_d2_m_2",
+      "dayOfWeek": 2,
+      "dayName": "Thứ 2",
+      "session": "MORNING",
+      "period": 2,
+      "globalPeriod": 2,
+      "startTime": "08:30",
+      "endTime": "09:15"
+    },
+    {
+      "id": "ts_d2_m_3",
+      "dayOfWeek": 2,
+      "dayName": "Thứ 2",
+      "session": "MORNING",
+      "period": 3,
+      "globalPeriod": 3,
+      "startTime": "09:15",
+      "endTime": "10:00"
+    },
+    {
+      "id": "ts_d2_m_4",
+      "dayOfWeek": 2,
+      "dayName": "Thứ 2",
+      "session": "MORNING",
+      "period": 4,
+      "globalPeriod": 4,
+      "startTime": "10:20",
+      "endTime": "11:05"
+    },
+    {
+      "id": "ts_d2_m_5",
+      "dayOfWeek": 2,
+      "dayName": "Thứ 2",
+      "session": "MORNING",
+      "period": 5,
+      "globalPeriod": 5,
+      "startTime": "11:05",
+      "endTime": "11:50"
+    },
+    {
+      "id": "ts_d2_a_1",
+      "dayOfWeek": 2,
+      "dayName": "Thứ 2",
+      "session": "AFTERNOON",
+      "period": 1,
+      "globalPeriod": 6,
+      "startTime": "13:30",
+      "endTime": "14:10"
+    },
+    {
+      "id": "ts_d2_a_2",
+      "dayOfWeek": 2,
+      "dayName": "Thứ 2",
+      "session": "AFTERNOON",
+      "period": 2,
+      "globalPeriod": 7,
+      "startTime": "14:10",
+      "endTime": "14:50"
+    },
+    {
+      "id": "ts_d2_a_3",
+      "dayOfWeek": 2,
+      "dayName": "Thứ 2",
+      "session": "AFTERNOON",
+      "period": 3,
+      "globalPeriod": 8,
+      "startTime": "15:10",
+      "endTime": "15:50"
+    },
+    {
+      "id": "ts_d2_a_4",
+      "dayOfWeek": 2,
+      "dayName": "Thứ 2",
+      "session": "AFTERNOON",
+      "period": 4,
+      "globalPeriod": 9,
+      "startTime": "15:50",
+      "endTime": "16:30"
+    },
+    {
+      "id": "ts_d3_m_1",
+      "dayOfWeek": 3,
+      "dayName": "Thứ 3",
+      "session": "MORNING",
+      "period": 1,
+      "globalPeriod": 1,
+      "startTime": "07:45",
+      "endTime": "08:30"
+    },
+    {
+      "id": "ts_d3_m_2",
+      "dayOfWeek": 3,
+      "dayName": "Thứ 3",
+      "session": "MORNING",
+      "period": 2,
+      "globalPeriod": 2,
+      "startTime": "08:30",
+      "endTime": "09:15"
+    },
+    {
+      "id": "ts_d3_m_3",
+      "dayOfWeek": 3,
+      "dayName": "Thứ 3",
+      "session": "MORNING",
+      "period": 3,
+      "globalPeriod": 3,
+      "startTime": "09:15",
+      "endTime": "10:00"
+    },
+    {
+      "id": "ts_d3_m_4",
+      "dayOfWeek": 3,
+      "dayName": "Thứ 3",
+      "session": "MORNING",
+      "period": 4,
+      "globalPeriod": 4,
+      "startTime": "10:20",
+      "endTime": "11:05"
+    },
+    {
+      "id": "ts_d3_m_5",
+      "dayOfWeek": 3,
+      "dayName": "Thứ 3",
+      "session": "MORNING",
+      "period": 5,
+      "globalPeriod": 5,
+      "startTime": "11:05",
+      "endTime": "11:50"
+    },
+    {
+      "id": "ts_d3_a_1",
+      "dayOfWeek": 3,
+      "dayName": "Thứ 3",
+      "session": "AFTERNOON",
+      "period": 1,
+      "globalPeriod": 6,
+      "startTime": "13:30",
+      "endTime": "14:10"
+    },
+    {
+      "id": "ts_d3_a_2",
+      "dayOfWeek": 3,
+      "dayName": "Thứ 3",
+      "session": "AFTERNOON",
+      "period": 2,
+      "globalPeriod": 7,
+      "startTime": "14:10",
+      "endTime": "14:50"
+    },
+    {
+      "id": "ts_d3_a_3",
+      "dayOfWeek": 3,
+      "dayName": "Thứ 3",
+      "session": "AFTERNOON",
+      "period": 3,
+      "globalPeriod": 8,
+      "startTime": "15:10",
+      "endTime": "15:50"
+    },
+    {
+      "id": "ts_d3_a_4",
+      "dayOfWeek": 3,
+      "dayName": "Thứ 3",
+      "session": "AFTERNOON",
+      "period": 4,
+      "globalPeriod": 9,
+      "startTime": "15:50",
+      "endTime": "16:30"
+    },
+    {
+      "id": "ts_d4_m_1",
+      "dayOfWeek": 4,
+      "dayName": "Thứ 4",
+      "session": "MORNING",
+      "period": 1,
+      "globalPeriod": 1,
+      "startTime": "07:45",
+      "endTime": "08:30"
+    },
+    {
+      "id": "ts_d4_m_2",
+      "dayOfWeek": 4,
+      "dayName": "Thứ 4",
+      "session": "MORNING",
+      "period": 2,
+      "globalPeriod": 2,
+      "startTime": "08:30",
+      "endTime": "09:15"
+    },
+    {
+      "id": "ts_d4_m_3",
+      "dayOfWeek": 4,
+      "dayName": "Thứ 4",
+      "session": "MORNING",
+      "period": 3,
+      "globalPeriod": 3,
+      "startTime": "09:15",
+      "endTime": "10:00"
+    },
+    {
+      "id": "ts_d4_m_4",
+      "dayOfWeek": 4,
+      "dayName": "Thứ 4",
+      "session": "MORNING",
+      "period": 4,
+      "globalPeriod": 4,
+      "startTime": "10:20",
+      "endTime": "11:05"
+    },
+    {
+      "id": "ts_d4_m_5",
+      "dayOfWeek": 4,
+      "dayName": "Thứ 4",
+      "session": "MORNING",
+      "period": 5,
+      "globalPeriod": 5,
+      "startTime": "11:05",
+      "endTime": "11:50"
+    },
+    {
+      "id": "ts_d4_a_1",
+      "dayOfWeek": 4,
+      "dayName": "Thứ 4",
+      "session": "AFTERNOON",
+      "period": 1,
+      "globalPeriod": 6,
+      "startTime": "13:30",
+      "endTime": "14:10"
+    },
+    {
+      "id": "ts_d4_a_2",
+      "dayOfWeek": 4,
+      "dayName": "Thứ 4",
+      "session": "AFTERNOON",
+      "period": 2,
+      "globalPeriod": 7,
+      "startTime": "14:10",
+      "endTime": "14:50"
+    },
+    {
+      "id": "ts_d4_a_3",
+      "dayOfWeek": 4,
+      "dayName": "Thứ 4",
+      "session": "AFTERNOON",
+      "period": 3,
+      "globalPeriod": 8,
+      "startTime": "15:10",
+      "endTime": "15:50"
+    },
+    {
+      "id": "ts_d4_a_4",
+      "dayOfWeek": 4,
+      "dayName": "Thứ 4",
+      "session": "AFTERNOON",
+      "period": 4,
+      "globalPeriod": 9,
+      "startTime": "15:50",
+      "endTime": "16:30"
+    },
+    {
+      "id": "ts_d5_m_1",
+      "dayOfWeek": 5,
+      "dayName": "Thứ 5",
+      "session": "MORNING",
+      "period": 1,
+      "globalPeriod": 1,
+      "startTime": "07:45",
+      "endTime": "08:30"
+    },
+    {
+      "id": "ts_d5_m_2",
+      "dayOfWeek": 5,
+      "dayName": "Thứ 5",
+      "session": "MORNING",
+      "period": 2,
+      "globalPeriod": 2,
+      "startTime": "08:30",
+      "endTime": "09:15"
+    },
+    {
+      "id": "ts_d5_m_3",
+      "dayOfWeek": 5,
+      "dayName": "Thứ 5",
+      "session": "MORNING",
+      "period": 3,
+      "globalPeriod": 3,
+      "startTime": "09:15",
+      "endTime": "10:00"
+    },
+    {
+      "id": "ts_d5_m_4",
+      "dayOfWeek": 5,
+      "dayName": "Thứ 5",
+      "session": "MORNING",
+      "period": 4,
+      "globalPeriod": 4,
+      "startTime": "10:20",
+      "endTime": "11:05"
+    },
+    {
+      "id": "ts_d5_m_5",
+      "dayOfWeek": 5,
+      "dayName": "Thứ 5",
+      "session": "MORNING",
+      "period": 5,
+      "globalPeriod": 5,
+      "startTime": "11:05",
+      "endTime": "11:50"
+    },
+    {
+      "id": "ts_d5_a_1",
+      "dayOfWeek": 5,
+      "dayName": "Thứ 5",
+      "session": "AFTERNOON",
+      "period": 1,
+      "globalPeriod": 6,
+      "startTime": "13:30",
+      "endTime": "14:10"
+    },
+    {
+      "id": "ts_d5_a_2",
+      "dayOfWeek": 5,
+      "dayName": "Thứ 5",
+      "session": "AFTERNOON",
+      "period": 2,
+      "globalPeriod": 7,
+      "startTime": "14:10",
+      "endTime": "14:50"
+    },
+    {
+      "id": "ts_d5_a_3",
+      "dayOfWeek": 5,
+      "dayName": "Thứ 5",
+      "session": "AFTERNOON",
+      "period": 3,
+      "globalPeriod": 8,
+      "startTime": "15:10",
+      "endTime": "15:50"
+    },
+    {
+      "id": "ts_d5_a_4",
+      "dayOfWeek": 5,
+      "dayName": "Thứ 5",
+      "session": "AFTERNOON",
+      "period": 4,
+      "globalPeriod": 9,
+      "startTime": "15:50",
+      "endTime": "16:30"
+    },
+    {
+      "id": "ts_d6_m_1",
+      "dayOfWeek": 6,
+      "dayName": "Thứ 6",
+      "session": "MORNING",
+      "period": 1,
+      "globalPeriod": 1,
+      "startTime": "07:45",
+      "endTime": "08:30"
+    },
+    {
+      "id": "ts_d6_m_2",
+      "dayOfWeek": 6,
+      "dayName": "Thứ 6",
+      "session": "MORNING",
+      "period": 2,
+      "globalPeriod": 2,
+      "startTime": "08:30",
+      "endTime": "09:15"
+    },
+    {
+      "id": "ts_d6_m_3",
+      "dayOfWeek": 6,
+      "dayName": "Thứ 6",
+      "session": "MORNING",
+      "period": 3,
+      "globalPeriod": 3,
+      "startTime": "09:15",
+      "endTime": "10:00"
+    },
+    {
+      "id": "ts_d6_m_4",
+      "dayOfWeek": 6,
+      "dayName": "Thứ 6",
+      "session": "MORNING",
+      "period": 4,
+      "globalPeriod": 4,
+      "startTime": "10:20",
+      "endTime": "11:05"
+    },
+    {
+      "id": "ts_d6_m_5",
+      "dayOfWeek": 6,
+      "dayName": "Thứ 6",
+      "session": "MORNING",
+      "period": 5,
+      "globalPeriod": 5,
+      "startTime": "11:05",
+      "endTime": "11:50"
+    },
+    {
+      "id": "ts_d6_a_1",
+      "dayOfWeek": 6,
+      "dayName": "Thứ 6",
+      "session": "AFTERNOON",
+      "period": 1,
+      "globalPeriod": 6,
+      "startTime": "13:30",
+      "endTime": "14:10"
+    },
+    {
+      "id": "ts_d6_a_2",
+      "dayOfWeek": 6,
+      "dayName": "Thứ 6",
+      "session": "AFTERNOON",
+      "period": 2,
+      "globalPeriod": 7,
+      "startTime": "14:10",
+      "endTime": "14:50"
+    },
+    {
+      "id": "ts_d6_a_3",
+      "dayOfWeek": 6,
+      "dayName": "Thứ 6",
+      "session": "AFTERNOON",
+      "period": 3,
+      "globalPeriod": 8,
+      "startTime": "15:10",
+      "endTime": "15:50"
+    },
+    {
+      "id": "ts_d6_a_4",
+      "dayOfWeek": 6,
+      "dayName": "Thứ 6",
+      "session": "AFTERNOON",
+      "period": 4,
+      "globalPeriod": 9,
+      "startTime": "15:50",
+      "endTime": "16:30"
+    }
+  ],
+  "timetableCells": [
+    {
+      "id": "initial_0",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_1",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_2",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_3",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_4",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_5",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_6",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_7",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_8",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_9",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_10",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_11",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_12",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_13",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_14",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_15",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_16",
+      "classId": "cls_6a1",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_17",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_18",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_19",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_20",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_21",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_22",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_23",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_24",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_25",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_26",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_27",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_28",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_29",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_30",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_31",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_32",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_33",
+      "classId": "cls_6a2",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_34",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_35",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_36",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_37",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_38",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_39",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_40",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_41",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_42",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_43",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_44",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_45",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_46",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_47",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_48",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_49",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_50",
+      "classId": "cls_6a3",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_51",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_52",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_53",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_54",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_55",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_56",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_57",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_58",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_59",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_60",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_61",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_62",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_63",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_64",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_65",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_66",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_67",
+      "classId": "cls_7a1",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_68",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_69",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_70",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_71",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_72",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_73",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_74",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_75",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_76",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_77",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_78",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_79",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_80",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_81",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_82",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_83",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_84",
+      "classId": "cls_7a2",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_85",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_86",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_87",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_88",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_89",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_90",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_91",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_92",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_93",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_94",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_95",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_96",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_97",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_98",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_99",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_100",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_101",
+      "classId": "cls_7a3",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_102",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_103",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_104",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_105",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_106",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_107",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_108",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_109",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_110",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_111",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_112",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_113",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_114",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_115",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_116",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_117",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_118",
+      "classId": "cls_8a1",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_119",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_120",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_121",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_122",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_123",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_124",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_125",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_126",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_127",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_128",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_129",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_130",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_131",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_132",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_133",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_134",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_135",
+      "classId": "cls_8a2",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_136",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_137",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_138",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_139",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_140",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_141",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_142",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_143",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_144",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_145",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_146",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_147",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_148",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_149",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_150",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_151",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_152",
+      "classId": "cls_8a3",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_153",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_154",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_155",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_156",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_157",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_158",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_159",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_160",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_161",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_162",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_163",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_164",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_165",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_166",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_167",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_168",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_169",
+      "classId": "cls_9a1",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_170",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_171",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_172",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_173",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_174",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_175",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_176",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_177",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_178",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_179",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_180",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_181",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_182",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_183",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_184",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_185",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_186",
+      "classId": "cls_9a2",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_187",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_188",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_189",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_190",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_191",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_192",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_193",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_194",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_195",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_196",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_197",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_198",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_199",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_200",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_201",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_202",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_203",
+      "classId": "cls_9a3",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_204",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_205",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_206",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_207",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_208",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_209",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_210",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_211",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_212",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_213",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_214",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_215",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_216",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_217",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_218",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_219",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_220",
+      "classId": "cls_10tn",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_221",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_222",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_223",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_224",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_225",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_226",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_227",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_228",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_229",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_230",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_231",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_232",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_233",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_234",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_235",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_236",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_237",
+      "classId": "cls_10xh",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_238",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_239",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_240",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_241",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_242",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_243",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_244",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_245",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_246",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_247",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_248",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_249",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_250",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_251",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_252",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_253",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_254",
+      "classId": "cls_11",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_255",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_256",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_257",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_258",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_259",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_260",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_261",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_262",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_263",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_264",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_265",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_266",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_267",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_268",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_269",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_270",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_271",
+      "classId": "cls_12tn",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_272",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d2_m_1",
+      "subjectId": "subj_special_chao_co",
+      "teacherId": "",
+      "locked": true,
+      "note": "HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)"
+    },
+    {
+      "id": "initial_273",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d2_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_274",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d2_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_275",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d2_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_276",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d2_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_277",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d4_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_278",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d4_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_279",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d4_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_280",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d4_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_281",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d6_a_1",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_282",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d6_a_2",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_283",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d6_a_3",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_284",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d6_a_4",
+      "subjectId": "subj_ta_esl",
+      "teacherId": "",
+      "locked": true,
+      "note": "Tiếng Anh ESL (Cố định chiều T2, T4, T6)"
+    },
+    {
+      "id": "initial_285",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d3_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_286",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d3_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_287",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d5_a_3",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    },
+    {
+      "id": "initial_288",
+      "classId": "cls_12xh",
+      "timeSlotId": "ts_d5_a_4",
+      "subjectId": "subj_clb",
+      "teacherId": "",
+      "locked": true,
+      "note": "Hoạt động CLB (Cố định chiều T3 & T5 tiết 3, 4)"
+    }
+  ],
+  "versions": [],
+  "published": null
+};
+
+const uid=()=>globalThis.crypto.randomUUID();
+const clone=value=>structuredClone(value);
+const keyOf=(classId,timeSlotId)=>`${classId}::${timeSlotId}`;
+function effectiveTeacher(cell,state){
+  return cell.teacherId||'';
+}
+function findConflicts(state,cells=state.timetableCells){
+  const groups=new Map();
+  for(const cell of cells){
+    if(!cell.teacherId)continue;
+    const key=keyOf(cell.teacherId,cell.timeSlotId);
+    groups.set(key,[...(groups.get(key)||[]),cell]);
+  }
+  return [...groups.values()].filter(group=>new Set(group.map(c=>c.classId)).size>1);
+}
+function putCell(state,cell,{allowConflict=false}={}){
+  if(!state.classes.some(c=>c.id===cell.classId)||!state.timeSlots.some(s=>s.id===cell.timeSlotId)||!state.subjects.some(s=>s.id===cell.subjectId))throw Error('Lớp, môn hoặc tiết học không hợp lệ.');
+  if(cell.teacherId&&!state.teachers.some(t=>t.id===cell.teacherId))throw Error('Giáo viên không tồn tại.');
+  const previous=state.timetableCells.find(c=>keyOf(c.classId,c.timeSlotId)===keyOf(cell.classId,cell.timeSlotId));
+  if(previous?.locked)throw Error('Ô này đang khóa. Hãy mở khóa trước khi sửa.');
+  const next=state.timetableCells.filter(c=>keyOf(c.classId,c.timeSlotId)!==keyOf(cell.classId,cell.timeSlotId));
+  if(!allowConflict&&cell.teacherId&&next.some(c=>c.teacherId===cell.teacherId&&c.timeSlotId===cell.timeSlotId))throw Error('Giáo viên đã có lịch tại lớp khác trong tiết này.');
+  return {...state,timetableCells:[...next,{id:previous?.id||uid(),...cell}]};
+}
+function deleteCell(state,classId,timeSlotId){
+  const existing=state.timetableCells.find(c=>c.classId===classId&&c.timeSlotId===timeSlotId);
+  if(existing?.locked)throw Error('Ô này đang khóa. Hãy mở khóa trước khi xóa.');
+  return {...state,timetableCells:state.timetableCells.filter(c=>c!==existing)};
+}
+function deleteEntity(state,kind,id){
+  const ref={classes:'classId',subjects:'subjectId',teachers:'teacherId'}[kind];
+  if(!ref)throw Error('Danh mục không hợp lệ.');
+  if(state.timetableCells.some(c=>c[ref]===id))throw Error('Đang được dùng trong thời khóa biểu. Hãy sửa các ô liên quan trước khi xóa.');
+  return {...state,[kind]:state[kind].filter(item=>item.id!==id)};
+}
+function makeSnapshot(state,name){
+  return {id:uid(),name,createdAt:new Date().toISOString(),data:clone({school:state.school,classes:state.classes,subjects:state.subjects,teachers:state.teachers,timeSlots:state.timeSlots,timetableCells:state.timetableCells})};
+}
+function restoreSnapshot(state,version){return {...state,...clone(version.data)};}
+function publish(state){
+  if(!state.timetableCells.length)throw Error('Thời khóa biểu còn trống.');
+  if(findConflicts(state).length)throw Error('Hãy xử lý lịch trùng giáo viên trước khi chốt lịch.');
+  return {...state,published:{...makeSnapshot(state,'Bản đã chốt'),publishedAt:new Date().toISOString()}};
+}
+const arrays=['classes','subjects','teachers','timeSlots','timetableCells'];
+function validateState(state){
+  if(!state||typeof state!=='object')throw Error('Dữ liệu không hợp lệ.');
+  if(!state.school||typeof state.school.name!=='string'||typeof state.school.year!=='string'||typeof state.school.term!=='string')throw Error('Thiếu thông tin trường/năm học/học kỳ.');
+  for(const kind of arrays){
+    if(!Array.isArray(state[kind]))throw Error(`Thiếu danh sách ${kind}.`);
+    const ids=new Set();
+    for(const item of state[kind]){
+      if(!item||typeof item.id!=='string'||!item.id||ids.has(item.id))throw Error(`ID trống hoặc trùng trong ${kind}.`);
+      ids.add(item.id);
+    }
+  }
+  for(const c of state.classes)if(typeof c.code!=='string'||typeof c.name!=='string'||!Number.isInteger(c.grade)||c.grade<1||c.grade>12)throw Error('Thông tin lớp không hợp lệ.');
+  for(const t of state.teachers)if(typeof t.fullName!=='string'||typeof t.code!=='string')throw Error('Thông tin giáo viên không hợp lệ.');
+  for(const s of state.subjects)if(typeof s.name!=='string'||typeof s.code!=='string'||!/^#[0-9a-f]{6}$/i.test(s.color))throw Error('Thông tin môn học không hợp lệ.');
+  const slots=new Set();
+  for(const s of state.timeSlots){
+    const key=`${s.dayOfWeek}:${s.session}:${s.period}`;
+    if(slots.has(key)||![2,3,4,5,6].includes(s.dayOfWeek)||!['MORNING','AFTERNOON'].includes(s.session)||!Number.isInteger(s.period)||s.period<1||s.period>(s.session==='MORNING'?5:4)||!/^\d{2}:\d{2}$/.test(s.startTime)||!/^\d{2}:\d{2}$/.test(s.endTime))throw Error('Khung tiết học không hợp lệ hoặc trùng.');
+    slots.add(key);
+  }
+  if(state.timeSlots.length!==45)throw Error('Ma trận cần đủ 45 tiết: thứ Hai–thứ Sáu, 5 tiết sáng và 4 tiết chiều.');
+  const occupied=new Set();
+  for(const c of state.timetableCells){
+    const key=keyOf(c.classId,c.timeSlotId);
+    if(occupied.has(key))throw Error('Có nhiều tiết học trong cùng một ô.');
+    occupied.add(key);
+    if(!state.classes.some(x=>x.id===c.classId)||!state.subjects.some(x=>x.id===c.subjectId)||!state.timeSlots.some(x=>x.id===c.timeSlotId)||(c.teacherId&&!state.teachers.some(x=>x.id===c.teacherId)))throw Error('Có ô lịch tham chiếu danh mục không tồn tại.');
+    if(c.teacherId!==undefined&&typeof c.teacherId!=='string')throw Error('Mã giáo viên không hợp lệ.');
+    if(c.note!==undefined&&typeof c.note!=='string')throw Error('Ghi chú không hợp lệ.');
+  }
+  if(!Array.isArray(state.versions))throw Error('Danh sách phiên bản không hợp lệ.');
+  return state;
+}
+function validateSnapshot(snapshot){
+  if(!snapshot||typeof snapshot.id!=='string'||typeof snapshot.name!=='string'||!snapshot.data)throw Error('Phiên bản lưu không hợp lệ.');
+  if(typeof snapshot.createdAt!=='string'||!Number.isFinite(Date.parse(snapshot.createdAt)))throw Error('Ngày lưu phiên bản không hợp lệ.');
+  validateState({...snapshot.data,versions:[],published:null});return snapshot;
+}
+function parseBackup(raw,seed){
+  const data=typeof raw==='string'?JSON.parse(raw):clone(raw);
+  const old=data.academicYear!==undefined;
+  let state;
+  if(old){
+    state={schemaVersion:1,school:{name:data.academicYear?.schoolName||'Trường THCS & THPT',year:data.academicYear?.name||'2026–2027',term:data.academicYear?.currentTerm||'HK1',appliedDate:''},classes:data.classes,subjects:data.subjects?.map(s=>({id:s.id,code:s.code,name:s.name,color:/^#[0-9a-f]{6}$/i.test(s.displayColor)?s.displayColor:'#d9e7f6'})),teachers:data.teachers?.map(t=>({id:t.id,code:t.code,fullName:t.fullName})),timeSlots:data.timeSlots||clone(seed.timeSlots),timetableCells:(data.timetableCells||[]).map(c=>({id:c.id||uid(),classId:c.classId,subjectId:c.subjectId,teacherId:c.teacherId||'',timeSlotId:c.timeSlotId,locked:!!c.locked,note:c.note||''})),versions:[],published:null};
+  }else{
+    if(data.schemaVersion!==1)throw Error('Phiên bản tệp sao lưu chưa được hỗ trợ.');
+    state=data;
+    for(const version of state.versions||[])validateSnapshot(version);
+    if(state.published){
+      validateSnapshot(state.published);
+      if(typeof state.published.publishedAt!=='string'||!Number.isFinite(Date.parse(state.published.publishedAt)))throw Error('Ngày chốt lịch không hợp lệ.');
+    }
+  }
+  return validateState(state);
+}
+function exportCsv(state){
+  const safe=value=>{let text=String(value??'');if(/^[=+@\-\t\r]/.test(text))text="'"+text;return '"'+text.replaceAll('"','""')+'"';};
+  const rows=[['Thứ','Buổi','Tiết','Thời gian',...state.classes.map(c=>c.name)]];
+  for(const slot of state.timeSlots){
+    rows.push([`Thứ ${slot.dayOfWeek}`,slot.session==='MORNING'?'Sáng':'Chiều',slot.period,`${slot.startTime}-${slot.endTime}`,...state.classes.map(cls=>{
+      const c=state.timetableCells.find(c=>c.classId===cls.id&&c.timeSlotId===slot.id);
+      return c?`${state.subjects.find(s=>s.id===c.subjectId)?.name||''}${c.teacherId?' — '+(state.teachers.find(t=>t.id===c.teacherId)?.fullName||''):''}`:'';
+    })]);
+  }
+  return '\uFEFF'+rows.map(r=>r.map(safe).join(',')).join('\r\n');
+}
+
+
+const KEY='TKB_NEW_V1';
+let state=clone(SEED),view='matrix',grade='',teacher='',query='',compact=true,showPublished=false;
+let undo=[],redo=[],pendingExternal=null;
+const app=document.querySelector('#app'),dialog=document.querySelector('#editor');
+const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const text=(items,id,field='name')=>items.find(x=>x.id===id)?.[field]||'—';
+const nameOfTeacher=id=>text(state.teachers,id,'fullName');
+const fmt=date=>new Intl.DateTimeFormat('vi-VN',{dateStyle:'short',timeStyle:'short'}).format(new Date(date));
+let toastTimer;
+function toast(message){document.querySelector('#toast').textContent=message;document.querySelector('#toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>document.querySelector('#toast').classList.remove('visible'),4500);}
+let startupError='';
+try{const saved=localStorage.getItem(KEY);if(saved)state=parseBackup(saved,SEED);}catch(error){startupError='Không đọc được dữ liệu đã lưu. Bản gốc vẫn được giữ; hãy nhập bản sao lưu. '+error.message;}
+let saveTime=null;
+try{saveTime=localStorage.getItem(KEY+'_savedAt');}catch{}
+function commit(next,message='Đã lưu thay đổi trên thiết bị này.'){
+  if(pendingExternal){toast('Có thay đổi ở tab khác. Hãy tải lại dữ liệu trước khi sửa.');return false;}
+  try{
+    validateState(next);
+    const encoded=JSON.stringify(next);
+    const now=new Date().toISOString();
+    localStorage.setItem(KEY+'_previous',JSON.stringify(state));
+    localStorage.setItem(KEY,encoded);
+    saveTime=now;
+    try{localStorage.setItem(KEY+'_savedAt',now);}catch{}
+    undo.push(clone(state));if(undo.length>25)undo.shift();redo=[];state=next;render();if(message)toast(message);return true;
+  }catch(error){toast('Chưa lưu: '+error.message);return false;}
+}
+function history(direction){
+  const from=direction==='undo'?undo:redo,to=direction==='undo'?redo:undo;
+  if(!from.length||pendingExternal)return;
+  const next=from.at(-1);
+  try{localStorage.setItem(KEY,JSON.stringify(next));saveTime=new Date().toISOString();try{localStorage.setItem(KEY+'_savedAt',saveTime);}catch{}from.pop();to.push(state);state=next;render();toast('Đã '+(direction==='undo'?'hoàn tác.':'làm lại.'));}catch(e){toast('Chưa lưu: '+e.message);}
+}
+function displayed(){return showPublished&&state.published?{...state,...state.published.data}:state;}
+function download(name,data,type='application/json'){
+  const url=URL.createObjectURL(new Blob([data],{type}));const link=document.createElement('a');link.href=url;link.download=name;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function backup(){download(`tkb-sao-luu-${new Date().toISOString().slice(0,10)}.json`,JSON.stringify(state,null,2));}
+function selectOptions(items,selected,label='name',empty='— Chọn —'){
+  return `<option value="">${esc(empty)}</option>`+items.map(item=>`<option value="${esc(item.id)}" ${item.id===selected?'selected':''}>${esc(item[label])}${label==='fullName'?' · '+esc(item.code):''}</option>`).join('');
+}
+const titles={matrix:'Thời khóa biểu toàn trường',teacher:'Lịch giáo viên',conflicts:'Kiểm tra lịch trùng',versions:'Phiên bản & bản đã chốt',catalog:'Danh mục phục vụ xếp lịch',settings:'Thông tin & dữ liệu'};
+function render(){
+  const s=displayed(),conflicts=findConflicts(state),published=!!state.published;
+  app.innerHTML=`<aside class="sidebar"><a class="brand" href="#"><span class="brand-icon">▦</span><span>TKB<span class="brand-sub">SỔ LỊCH NHÀ TRƯỜNG</span></span></a><div class="sidebar-label">KHÔNG GIAN LÀM VIỆC</div><nav>${[['matrix','▦','Toàn trường'],['teacher','◷','Lịch giáo viên'],['conflicts','◎','Kiểm tra lịch'],['versions','▱','Phiên bản'],['catalog','▤','Danh mục'],['settings','⚙','Thông tin & dữ liệu']].map(([id,icon,name])=>`<button data-view="${id}" class="nav-button ${view===id?'active':''}"><span>${icon}</span>${name}${id==='conflicts'&&conflicts.length?`<b class="badge">${conflicts.length}</b>`:''}</button>`).join('')}</nav><div class="sidebar-bottom"><span class="status-dot"></span> Bản nền 1.0<p>Lưu riêng trên trình duyệt này.<br>Sao lưu để chuyển sang thiết bị khác.</p><button data-action="backup" class="sidebar-backup">↓ Sao lưu dữ liệu</button></div></aside>
+  <div class="workspace"><header class="topbar"><span>${esc(state.school.name)}</span><div><span class="year">${esc(state.school.year)} · ${esc(state.school.term)}</span><button data-action="school" class="icon-button" aria-label="Sửa thông tin trường">✎</button></div></header><main>
+  ${pendingExternal?'<div class="alert">Có dữ liệu mới từ tab khác. <button data-action="reload-external">Tải dữ liệu mới</button></div>':''}
+  ${startupError?`<div class="alert">${esc(startupError)}</div>`:''}
+  <div class="page-heading"><div><div class="eyebrow">LẬP LỊCH • ${esc(state.school.term)}</div><h1>${titles[view]}</h1><p>${view==='matrix'?'Một ma trận chung. Mọi lớp học, trong cùng một nhịp.':view==='catalog'?'Chỉ quản lý lớp, môn và giáo viên để chọn trực tiếp trong ô lịch.':'Tổ chức lịch dạy rõ ràng, dễ kiểm tra và lưu trữ.'}</p></div><div class="heading-actions"><button data-action="undo" ${!undo.length||showPublished?'disabled':''} title="Hoàn tác">↶</button><button data-action="redo" ${!redo.length||showPublished?'disabled':''} title="Làm lại">↷</button><button data-action="print">In / PDF</button><button data-action="csv">Xuất CSV</button><button class="primary" data-action="save-version">＋ Lưu phiên bản</button></div></div>
+  ${(view==='matrix'||view==='teacher')?`<section class="stats"><div><span class="stat-icon">▤</span><div><strong>${s.classes.length}</strong><span>Lớp học</span></div></div><div><span class="stat-icon">♙</span><div><strong>${s.teachers.length}</strong><span>Giáo viên</span></div></div><div><span class="stat-icon">▦</span><div><strong>${s.timetableCells.length}<small> / ${s.classes.length*s.timeSlots.length}</small></strong><span>Ô đã xếp · gồm hoạt động cố định</span></div></div><div class="${conflicts.length?'warning-stat':''}"><span class="stat-icon">◎</span><div><strong>${conflicts.length?conflicts.length:'Không có'}</strong><span>Khung giờ trùng giáo viên trong bản nháp</span></div></div></section>`:''}
+  <div id="content">${view==='matrix'||view==='teacher'?matrix(s):view==='catalog'?catalog():view==='conflicts'?conflictPage():view==='versions'?versionsPage():settings()}</div>
+  <footer><span>TKB • Bản nền 1.0</span><span>${saveTime?'Lưu trên thiết bị lúc '+esc(fmt(saveTime)):'Dữ liệu khởi tạo · Chưa có thay đổi'} · <button data-action="backup">Sao lưu</button></span></footer></main></div>`;
+}
+function matrix(s){
+  const classes=s.classes.filter(c=>!grade||(grade==='THCS'?c.grade<=9:grade==='THPT'?c.grade>=10:String(c.grade)===grade));
+  const index=new Map(s.timetableCells.map(c=>[keyOf(c.classId,c.timeSlotId),c]));
+  const conflictIds=new Set(findConflicts(s).flat().map(c=>c.id));
+  const teacherName=text(s.teachers,teacher,'fullName');
+  const isReadonly=showPublished&&!!state.published;
+  let rows='';
+  for(let day=2;day<=6;day++){
+    const slots=s.timeSlots.filter(slot=>slot.dayOfWeek===day).sort((a,b)=>a.globalPeriod-b.globalPeriod);
+    slots.forEach((slot,i)=>{
+      rows+=`<tr class="${i===0?'day-start ':''}${slot.period===1&&slot.session==='AFTERNOON'?'afternoon-start':''}">${i===0?`<th rowspan="9" class="sticky-day day-name">THỨ ${['','','HAI','BA','TƯ','NĂM','SÁU'][day]}</th>`:''}${slot.period===1?`<th rowspan="${slot.session==='MORNING'?5:4}" class="sticky-session session ${slot.session.toLowerCase()}">${slot.session==='MORNING'?'SÁNG':'CHIỀU'}</th>`:''}<th class="sticky-period period">${slot.period}</th><td class="sticky-time time">${esc(slot.startTime)}<br><span>${esc(slot.endTime)}</span></td>`;
+      for(const cls of classes){
+        const cell=index.get(keyOf(cls.id,slot.id)),subject=cell?s.subjects.find(x=>x.id===cell.subjectId):null;
+        const teacherText=cell?text(s.teachers,cell.teacherId,'fullName'):'';
+        const match=(!teacher||cell?.teacherId===teacher)&&(!query||`${subject?.name||''} ${teacherText} ${cls.name}`.toLocaleLowerCase('vi').includes(query.toLocaleLowerCase('vi')));
+        rows+=`<td class="lesson ${cell?'filled':'empty'} ${!match?'dim':''} ${cell&&conflictIds.has(cell.id)?'conflict':''}" style="${subject?'--subject:'+esc(subject.color)+';':''}"><button data-cell-class="${esc(cls.id)}" data-cell-slot="${esc(slot.id)}" aria-label="${esc(`${cls.name}, thứ ${day}, ${slot.session==='MORNING'?'sáng':'chiều'} tiết ${slot.period}${subject?', '+subject.name:''}`)}" ${isReadonly?'disabled':''}>${cell?`<span class="subject-name">${esc(subject?.name)} ${cell.locked?'<span class="lock" title="Đã khóa">▣</span>':''}</span><span class="teacher-name">${cell.teacherId?esc(teacherText):'Chưa chọn giáo viên'}</span>${cell.note?`<span class="cell-note" title="${esc(cell.note)}">${esc(cell.note)}</span>`:''}`:'<span class="empty-mark">＋</span>'}</button></td>`;
+      }
+      rows+='</tr>';
+    });
+  }
+  return `<section class="matrix-panel"><div class="panel-toolbar"><div class="segmented"><button data-action="draft" class="${!isReadonly?'selected':''}">Bản đang xếp</button><button data-action="published" class="${isReadonly?'selected':''}" ${!state.published?'disabled':''}>Bản đã chốt ${state.published?'✓':''}</button></div><div class="toolbar-right"><label class="sr-only" for="teacher-filter">Lọc giáo viên</label><select id="teacher-filter">${selectOptions(s.teachers,teacher,'fullName','Tất cả giáo viên')}</select><label class="search"><span>⌕</span><input id="search" placeholder="Tìm môn, giáo viên, lớp…" value="${esc(query)}" aria-label="Tìm trong ma trận"></label><button data-action="density" class="icon-button" title="Đổi độ rộng cột">${compact?'↔':'↦↤'}</button><button data-action="fullscreen" class="icon-button" title="Toàn màn hình">⛶</button></div></div><div class="grade-toolbar"><span>Cột lớp</span>${['','THCS','THPT','6','7','8','9','10','11','12'].map(g=>`<button data-grade="${g}" class="${grade===g?'selected':''}">${g?(g==='THCS'||g==='THPT'?g:'Khối '+g):'Toàn trường'}</button>`).join('')}<span class="class-count">${classes.length} lớp</span></div>
+  <div class="matrix-caption"><div><span class="live-pill ${isReadonly?'published':''}">${isReadonly?'✓ ĐÃ CHỐT':'● BẢN ĐANG XẾP'}</span><h2>THỜI KHÓA BIỂU TOÀN TRƯỜNG</h2><p>${esc(s.school.name)} · ${esc(s.school.year)} · ${esc(s.school.term)}${s.school.appliedDate?' · Áp dụng '+esc(s.school.appliedDate):''}</p></div><p class="matrix-help">${isReadonly?'Bản đã chốt được giữ độc lập với bản đang xếp.':teacher?'Đang rọi sáng lịch: '+esc(teacherName):'Nhấp một ô để chọn môn & giáo viên. Ô có ▣ đang khóa.'}</p></div>
+  <div class="matrix-scroll" tabindex="0" role="region" aria-label="Ma trận thời khóa biểu, cuộn ngang để xem tất cả lớp"><table class="matrix ${compact?'compact':''}"><thead><tr><th class="sticky-day">Thứ</th><th class="sticky-session">Buổi</th><th class="sticky-period">Tiết</th><th class="sticky-time">Thời gian</th>${classes.map(cls=>`<th class="class-header"><strong>${esc(cls.name)}</strong><span>${cls.grade<10?'THCS':'THPT'} · Khối ${cls.grade}</span><div><span>GV1: ${esc(text(s.teachers,cls.homeroomTeacherId,'fullName'))}</span><span>GV2: ${esc(text(s.teachers,cls.coHomeroomTeacherId,'fullName'))}</span></div></th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div><div class="matrix-bottom"><span><i></i> Môn học & giáo viên trong cùng một ô</span><span>${isReadonly?'Chế độ xem':'Lưu ngay sau mỗi thao tác'} · Thứ Hai → Thứ Sáu · 5 sáng / 4 chiều</span></div></section>`;
+}
+function catalog(){
+  return `<div class="notice">Không có phân công chuyên môn hoặc định mức giáo viên. Chọn môn và giáo viên trực tiếp trên ma trận.</div><div class="catalog-grid">${[['classes','Lớp học'],['subjects','Môn học'],['teachers','Giáo viên']].map(([kind,label])=>`<section class="card"><div class="card-title"><h2>${label} <small>${state[kind].length}</small></h2><button data-add="${kind}" class="primary">＋ Thêm</button></div>${state[kind].length?`<div class="catalog-list">${state[kind].map(item=>`<div class="catalog-row"><div>${kind==='subjects'?`<i class="subject-dot" style="background:${esc(item.color)}"></i>`:''}<strong>${esc(kind==='teachers'?item.fullName:item.name)}</strong><small>${esc(item.code)}${kind==='classes'?' · Khối '+item.grade:''}</small></div><button data-edit="${kind}" data-id="${esc(item.id)}" aria-label="Sửa ${esc(item.name||item.fullName)}">Sửa</button><button data-delete="${kind}" data-id="${esc(item.id)}" class="danger-link" aria-label="Xóa ${esc(item.name||item.fullName)}">×</button></div>`).join('')}</div>`:'<div class="empty-state"><span>♙</span><h3>Thêm giáo viên để bắt đầu</h3><p>Chỉ cần mã và họ tên. Không cần nhập số tiết.</p></div>'}</section>`).join('')}</div>`;
+}
+function conflictPage(){
+  const groups=findConflicts(state);
+  return `<section class="card"><div class="card-title"><h2>${groups.length?'Cần kiểm tra '+groups.length+' khung giờ':'Không có lịch trùng giáo viên'}</h2><button data-action="go-matrix">Mở ma trận</button></div><p class="muted">Kiểm tra giáo viên dạy nhiều lớp trong cùng một tiết. Các ô chưa chọn giáo viên chưa thể kiểm tra trùng.</p>${groups.map(group=>{const slot=state.timeSlots.find(s=>s.id===group[0].timeSlotId);return `<div class="conflict-row"><span class="warning-icon">!</span><div><strong>${esc(nameOfTeacher(group[0].teacherId))}</strong><p>Thứ ${slot.dayOfWeek} · ${slot.session==='MORNING'?'Sáng':'Chiều'} tiết ${slot.period} · ${esc(slot.startTime)}</p></div><div class="conflict-links">${group.map(cell=>`<button data-cell-class="${esc(cell.classId)}" data-cell-slot="${esc(cell.timeSlotId)}">${esc(text(state.classes,cell.classId))} · ${esc(text(state.subjects,cell.subjectId))} ↗</button>`).join('')}</div></div>`;}).join('')}${!groups.length?'<div class="empty-state"><span class="success-icon">✓</span><h3>Lịch hiện tại không trùng giáo viên</h3><p>Tiếp tục chọn giáo viên cho các ô còn thiếu để kiểm tra đầy đủ.</p></div>':''}<div class="notice">${state.timetableCells.filter(c=>!c.teacherId).length} ô đã có môn hoặc hoạt động nhưng chưa chọn giáo viên. Kiểm tra này chưa bao gồm phòng học, lịch bận và đủ tiết chương trình.</div></section>`;
+}
+function versionsPage(){
+  return `<section class="card"><div class="card-title"><h2>Bản đã chốt</h2><button class="primary" data-action="publish">Chốt bản đang xếp</button></div>${state.published?`<div class="published-card"><div><span class="live-pill published">✓ ĐÃ CHỐT</span><h3>${esc(state.published.name)}</h3><p>${esc(fmt(state.published.publishedAt))} · ${state.published.data.timetableCells.length} ô</p></div><div><button data-action="view-published">Xem ma trận</button><button data-action="restore-published">Khôi phục về bản đang xếp</button><button class="danger-link" data-action="unpublish">Gỡ bản đã chốt</button></div></div>`:'<p class="muted">Chưa có bản đã chốt. Sau khi kiểm tra lịch, chốt một bản để giữ độc lập với các chỉnh sửa tiếp theo.</p>'}</section><section class="card"><div class="card-title"><h2>Các phiên bản đã lưu</h2><button data-action="save-version">＋ Lưu phiên bản</button></div>${state.versions.length?state.versions.map(v=>`<div class="version-row"><div><strong>${esc(v.name)}</strong><p>${esc(fmt(v.createdAt))} · ${v.data.timetableCells.length} ô</p></div><button data-restore="${esc(v.id)}">Khôi phục</button><button data-remove-version="${esc(v.id)}" class="danger-link">Xóa</button></div>`).join(''):'<div class="empty-state"><span>▱</span><h3>Giữ lại một cột mốc</h3><p>Lưu một phiên bản trước mỗi đợt chỉnh sửa lớn.</p></div>'}</section>`;
+}
+function settings(){return `<div class="settings-grid"><section class="card"><h2>Thông tin nhà trường</h2><dl><dt>Trường</dt><dd>${esc(state.school.name)}</dd><dt>Năm học</dt><dd>${esc(state.school.year)}</dd><dt>Học kỳ</dt><dd>${esc(state.school.term)}</dd><dt>Áp dụng từ</dt><dd>${esc(state.school.appliedDate||'Chưa đặt')}</dd></dl><button data-action="school">Chỉnh sửa</button></section><section class="card"><h2>Sao lưu & chuyển dữ liệu</h2><p>Thay đổi được lưu trên trình duyệt của thiết bị này. Xuất bản sao lưu JSON để chuyển máy hoặc giữ dữ liệu an toàn.</p><div class="button-row"><button class="primary" data-action="backup">↓ Tải bản sao lưu JSON</button><button data-action="import">↑ Nhập JSON mới / app cũ</button><button data-action="csv">Xuất ma trận CSV</button><button data-action="recover">Lấy bản dự phòng gần nhất</button></div><p class="muted">Nhập từ app cũ: giữ lớp, môn, giáo viên, khung giờ và ô lịch; bỏ dữ liệu phân công và định mức. Dữ liệu thiếu tham chiếu sẽ được báo lỗi thay vì tự sửa.</p></section><section class="card"><h2>Khung ma trận gốc</h2><p>17 lớp ban đầu · Thứ Hai–thứ Sáu · 5 tiết sáng / 4 tiết chiều. Giữ các cột Thứ, Buổi, Tiết, Thời gian và giáo viên chủ nhiệm GV1 / GV2.</p><p class="muted">Giờ học và các hoạt động cố định được lấy từ mã nguồn cũ. Lịch đang vận hành trên Firebase cần nhập bằng bản sao lưu.</p></section><section class="card"><h2>Không gian mới</h2><p>Tạo một bản trống, giữ danh sách lớp, môn và giáo viên. Các ô đang khóa cũng sẽ được xóa.</p><button class="danger-link" data-action="clear">Xóa toàn bộ ô ở bản đang xếp</button><p class="muted">Bản đã chốt và các phiên bản đã lưu được giữ nguyên.</p></section></div>`;}
+function openDialog(html){dialog.innerHTML=html;if(!dialog.open)dialog.showModal();}
+const closeButton='<button type="button" data-action="close" class="icon-button" aria-label="Đóng">×</button>';
+function cellEditor(classId,timeSlotId){
+  if(showPublished){toast('Chuyển về bản đang xếp để chỉnh sửa.');return;}
+  const cls=state.classes.find(c=>c.id===classId),slot=state.timeSlots.find(s=>s.id===timeSlotId);
+  const cell=state.timetableCells.find(c=>c.classId===classId&&c.timeSlotId===timeSlotId);
+  const locked=!!cell?.locked;
+  openDialog(`<form id="cell-form" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}"><div class="dialog-title"><div><div class="eyebrow">CHỈNH Ô THỜI KHÓA BIỂU</div><h2>${esc(cls.name)}</h2><p>Thứ ${slot.dayOfWeek} · ${slot.session==='MORNING'?'Sáng':'Chiều'} tiết ${slot.period} · ${esc(slot.startTime)}–${esc(slot.endTime)}</p></div>${closeButton}</div>${locked?'<div class="notice">Ô đã khóa. Mở khóa để thay đổi môn, giáo viên hoặc xóa.</div>':''}<fieldset ${locked?'disabled':''}><label>Môn học<select name="subjectId" required>${selectOptions(state.subjects,cell?.subjectId,'name','Chọn môn học')}</select></label><label>Giáo viên<select name="teacherId">${selectOptions(state.teachers,cell?.teacherId,'fullName','Chưa chọn giáo viên')}</select></label><p class="field-help">Giáo viên đã có lịch cùng tiết sẽ được báo trước khi lưu.</p><label>Ghi chú<input name="note" maxlength="200" value="${esc(cell?.note||'')}" placeholder="Ví dụ: học phòng tin, học bù…"></label><label class="checkbox"><input type="checkbox" name="locked"> Khóa ô sau khi lưu</label></fieldset><div id="form-error" class="form-error" role="alert"></div><div class="dialog-actions">${cell?`<button type="button" data-action="toggle-lock" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}">${locked?'Mở khóa':'Khóa ô'}</button><button type="button" data-action="delete-cell" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}" class="danger-link" ${locked?'disabled':''}>Xóa ô</button>`:''}<button type="button" data-action="close">Hủy</button><button class="primary" type="submit" ${locked?'disabled':''}>Lưu ô lịch</button></div></form>`);
+}
+function entityEditor(kind,id){
+  const item=state[kind].find(x=>x.id===id)||{};
+  const labels={classes:'lớp',subjects:'môn',teachers:'giáo viên'};
+  openDialog(`<form id="entity-form" data-kind="${kind}" data-id="${esc(id||'')}"><div class="dialog-title"><h2>${id?'Sửa':'Thêm'} ${labels[kind]}</h2>${closeButton}</div><label>Mã ${labels[kind]}<input name="code" maxlength="30" required value="${esc(item.code||'')}" placeholder="${kind==='teachers'?'GV01':kind==='classes'?'6A1':'TOAN'}"></label><label>${kind==='teachers'?'Họ tên giáo viên':'Tên hiển thị'}<input name="name" maxlength="100" required value="${esc(kind==='teachers'?item.fullName||'':item.name||'')}"></label>${kind==='classes'?`<label>Khối<select name="grade">${[6,7,8,9,10,11,12].map(g=>`<option value="${g}" ${item.grade===g?'selected':''}>Khối ${g}</option>`).join('')}</select></label><label>Giáo viên chủ nhiệm 1<select name="homeroomTeacherId">${selectOptions(state.teachers,item.homeroomTeacherId,'fullName','Chưa chọn')}</select></label><label>Giáo viên chủ nhiệm 2<select name="coHomeroomTeacherId">${selectOptions(state.teachers,item.coHomeroomTeacherId,'fullName','Chưa chọn')}</select></label>`:kind==='subjects'?`<label>Màu môn<input name="color" type="color" value="${esc(item.color||'#2563eb')}"></label>`:'<p class="field-help">Chỉ cần mã và họ tên. Chọn giáo viên trực tiếp khi xếp ô lịch.</p>'}<div id="form-error" class="form-error" role="alert"></div><div class="dialog-actions"><button type="button" data-action="close">Hủy</button><button type="submit" class="primary">Lưu</button></div></form>`);
+}
+function schoolEditor(){openDialog(`<form id="school-form"><div class="dialog-title"><h2>Thông tin nhà trường</h2>${closeButton}</div>${[['name','Tên trường'],['year','Năm học'],['term','Học kỳ'],['appliedDate','Áp dụng từ']].map(([key,label])=>`<label>${label}<input name="${key}" value="${esc(state.school[key])}" ${key==='appliedDate'?'type="date"':'required maxlength="120"'}></label>`).join('')}<div id="form-error" class="form-error" role="alert"></div><div class="dialog-actions"><button type="button" data-action="close">Hủy</button><button class="primary">Lưu thông tin</button></div></form>`);}
+function importFile(){
+  const picker=document.createElement('input');picker.type='file';picker.accept='.json,application/json';
+  picker.onchange=async()=>{
+    const file=picker.files[0];if(!file)return;
+    try{
+      if(file.size>20*1024*1024)throw Error('Tệp vượt quá 20 MB.');
+      const next=parseBackup(await file.text(),SEED);
+      openDialog(`<div class="dialog-title"><h2>Kiểm tra dữ liệu trước khi nhập</h2>${closeButton}</div><p>Tệp: ${esc(file.name)}</p><div class="import-counts">${next.classes.length} lớp · ${next.subjects.length} môn · ${next.teachers.length} giáo viên · ${next.timetableCells.length} ô lịch</div><p>Thay thế dữ liệu đang dùng bằng tệp này. Bản hiện tại sẽ được tải xuống trước khi thay thế.</p><div class="dialog-actions"><button data-action="close">Hủy</button><button id="confirm-import" class="primary">Sao lưu & nhập dữ liệu</button></div>`);
+      document.querySelector('#confirm-import').onclick=()=>{backup();if(commit(next,'Đã nhập dữ liệu.')){startupError='';showPublished=false;teacher='';grade='';dialog.close();render();}};
+    }catch(error){toast('Không nhập: '+error.message);}
+  };picker.click();
+}
+const actions={
+  close:()=>dialog.close(),backup,school:schoolEditor,import:importFile,
+  undo:()=>history('undo'),redo:()=>history('redo'),
+  print:()=>window.print(),csv:()=>download('thoi-khoa-bieu.csv',exportCsv(displayed()),'text/csv;charset=utf-8'),
+  density:()=>{compact=!compact;render();},
+  fullscreen:async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();}catch{toast('Trình duyệt chưa cho phép toàn màn hình.');}},
+  draft:()=>{showPublished=false;render();},published:()=>{showPublished=true;teacher='';render();},
+  'go-matrix':()=>{view='matrix';showPublished=false;render();},
+  'view-published':()=>{view='matrix';showPublished=true;teacher='';render();},
+  'save-version':()=>{const name=prompt('Tên phiên bản:',`Bản lịch ${state.versions.length+1}`)?.trim();if(name)commit({...state,versions:[makeSnapshot(state,name.slice(0,100)),...state.versions]},'Đã lưu phiên bản độc lập.');},
+  publish:()=>{try{if(confirm('Chốt bản đang xếp? Bản đã chốt hiện tại sẽ được thay thế.'))commit(publish(state),'Đã chốt lịch trên thiết bị này.');}catch(e){toast(e.message);}},
+  unpublish:()=>{if(confirm('Gỡ bản đã chốt? Bản đang xếp và các phiên bản được giữ nguyên.')){if(commit({...state,published:null},'Đã gỡ bản đã chốt.'))showPublished=false;}},
+  'restore-published':()=>{if(state.published&&confirm('Khôi phục cả danh mục và ô lịch từ bản đã chốt?'))commit(restoreSnapshot(state,state.published),'Đã khôi phục bản đã chốt.');},
+  clear:()=>{if(confirm('Xóa TẤT CẢ ô ở bản đang xếp, gồm ô khóa? Hãy giữ bản sao lưu trước khi tiếp tục.')){backup();commit({...state,timetableCells:[]},'Đã tạo bản lịch trống.');}},
+  recover:()=>{const raw=localStorage.getItem(KEY+'_previous');if(!raw){toast('Chưa có bản dự phòng.');return;}download('tkb-du-phong.json',raw);toast('Đã tải bản dự phòng. Dùng Nhập JSON để kiểm tra và khôi phục.');},
+  'reload-external':()=>{if(pendingExternal){state=pendingExternal;pendingExternal=null;undo=[];redo=[];showPublished=false;saveTime=localStorage.getItem(KEY+'_savedAt');dialog.close();render();}},
+  'toggle-lock':element=>{const {class:classId,slot:timeSlotId}=element.dataset;const next={...state,timetableCells:state.timetableCells.map(c=>c.classId===classId&&c.timeSlotId===timeSlotId?{...c,locked:!c.locked}:c)};if(commit(next)){cellEditor(classId,timeSlotId);}},
+  'delete-cell':element=>{try{if(commit(deleteCell(state,element.dataset.class,element.dataset.slot),'Đã xóa ô lịch.'))dialog.close();}catch(e){toast(e.message);}}
+};
+document.addEventListener('click',event=>{
+  const element=event.target.closest('button');if(!element)return;
+  if(element.dataset.action){actions[element.dataset.action]?.(element);return;}
+  if(element.dataset.view){view=element.dataset.view;showPublished=false;render();return;}
+  if(element.hasAttribute('data-grade')){grade=element.dataset.grade;render();return;}
+  if(element.dataset.cellClass){cellEditor(element.dataset.cellClass,element.dataset.cellSlot);return;}
+  if(element.dataset.add){entityEditor(element.dataset.add);return;}
+  if(element.dataset.edit){entityEditor(element.dataset.edit,element.dataset.id);return;}
+  if(element.dataset.delete){try{const next=deleteEntity(state,element.dataset.delete,element.dataset.id);if(confirm('Xóa mục này khỏi danh mục?'))commit(next,'Đã xóa khỏi danh mục.');}catch(error){toast(error.message);}return;}
+  if(element.dataset.restore){const version=state.versions.find(v=>v.id===element.dataset.restore);if(version&&confirm('Khôi phục danh mục và ma trận từ phiên bản này? Có thể hoàn tác ngay sau đó.'))commit(restoreSnapshot(state,version),'Đã khôi phục phiên bản.');return;}
+  if(element.dataset.removeVersion&&confirm('Xóa phiên bản đã lưu này?'))commit({...state,versions:state.versions.filter(v=>v.id!==element.dataset.removeVersion)},'Đã xóa phiên bản.');
+});
+document.addEventListener('change',event=>{if(event.target.id==='teacher-filter'){teacher=event.target.value;render();}});
+document.addEventListener('input',event=>{if(event.target.id==='search'){
+  const start=event.target.selectionStart;query=event.target.value;const scroll=document.querySelector('.matrix-scroll');const x=scroll.scrollLeft,y=scroll.scrollTop;
+  render();const input=document.querySelector('#search');input.focus();input.setSelectionRange(start,start);document.querySelector('.matrix-scroll').scrollTo(x,y);
+}});
+document.addEventListener('submit',event=>{
+  event.preventDefault();const form=event.target,data=new FormData(form);let next;
+  try{
+    if(form.id==='cell-form')next=putCell(state,{classId:form.dataset.class,timeSlotId:form.dataset.slot,subjectId:data.get('subjectId'),teacherId:data.get('teacherId')||'',note:String(data.get('note')||'').trim(),locked:data.has('locked')});
+    else if(form.id==='entity-form'){
+      const kind=form.dataset.kind,id=form.dataset.id||uid(),code=String(data.get('code')).trim(),name=String(data.get('name')).trim();
+      if(!code||!name)throw Error('Mã và tên không được để trống.');
+      if(state[kind].some(item=>item.id!==id&&item.code.toLocaleLowerCase()===code.toLocaleLowerCase()))throw Error('Mã đã tồn tại trong danh mục.');
+      const existing=state[kind].find(item=>item.id===id)||{};
+      const item={...existing,id,code,...(kind==='teachers'?{fullName:name}:{name}),...(kind==='classes'?{grade:Number(data.get('grade')),homeroomTeacherId:data.get('homeroomTeacherId'),coHomeroomTeacherId:data.get('coHomeroomTeacherId')}:{}),...(kind==='subjects'?{color:data.get('color')}:{})};
+      const list=form.dataset.id?state[kind].map(old=>old.id===id?item:old):[...state[kind],item];
+      if(kind==='classes')list.sort((a,b)=>a.grade-b.grade||a.code.localeCompare(b.code,'vi',{numeric:true}));
+      next={...state,[kind]:list};
+    }else if(form.id==='school-form'){
+      const school=Object.fromEntries([...data].map(([key,value])=>[key,String(value).trim()]));
+      if(!school.name||!school.year||!school.term)throw Error('Vui lòng điền tên trường, năm học và học kỳ.');next={...state,school};
+    }else return;
+    if(commit(next))dialog.close();
+  }catch(error){const output=form.querySelector('#form-error');if(output)output.textContent=error.message;else toast(error.message);}
+});
+window.addEventListener('storage',event=>{
+  if(event.key!==KEY)return;
+  if(!event.newValue){toast('Dữ liệu lưu ở tab khác đã bị xóa. Hãy sao lưu dữ liệu hiện tại.');return;}
+  try{pendingExternal=parseBackup(event.newValue,SEED);render();toast('Có thay đổi ở tab khác. Hãy tải dữ liệu mới.');}catch{toast('Tab khác vừa ghi dữ liệu không hợp lệ. Bản đang dùng vẫn được giữ.');}
+});
+render();
+</script>
+</body>
+</html>

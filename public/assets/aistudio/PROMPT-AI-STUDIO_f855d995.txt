@@ -1,0 +1,13 @@
+Đây là mã nguồn hoàn chỉnh của một app thời khóa biểu mới. Hãy giữ nguyên logic và cấu trúc; chỉ điều chỉnh khởi chạy nếu cần để Preview chạy trong Google AI Studio bằng npm run dev. Không sinh lại app từ đầu.
+
+Mục đích DUY NHẤT ở bản nền: tạo và chỉnh thời khóa biểu toàn trường bằng ma trận. BỎ HẲN phân công chuyên môn. Không có định mức, số tiết của giáo viên, tổng tiết giáo viên hoặc trang phân công. Người dùng chọn môn và giáo viên ngay trong từng ô.
+
+Giữ cấu trúc ma trận: Thứ / Buổi / Tiết / Thời gian / cột lớp, 17 lớp theo seed, thứ Hai đến thứ Sáu, 5 tiết sáng và 4 tiết chiều, khung giờ cũ, GV1 và GV2 trên đầu cột, màu môn, khóa ô, rọi sáng giáo viên, tìm kiếm, in.
+
+Không thay dữ liệu seed bằng dữ liệu bịa. Không tự thêm lại lớp/môn người dùng đã xóa. Không sửa ô khóa khi chưa mở khóa. Không cho xếp một giáo viên ở nhiều lớp trong cùng tiết.
+
+Giữ sao lưu JSON, nhập dữ liệu cũ, phiên bản có snapshot danh mục và ô lịch, bản đã chốt độc lập, gỡ chốt bền vững. Chạy npm test và npm run build sau khi sửa.
+
+App bản 1.0 lưu theo trình duyệt, chưa đồng bộ nhiều người. Không tự kết nối vào Firebase của app cũ, không sao chép rules mở read/write. Nếu nâng cấp Firebase sau này, phải thống nhất một database và có phân quyền phía server/rules.
+
+Chưa bổ sung AI, xếp tự động hoặc định mức giáo viên. Chỉ nâng cấp thêm theo yêu cầu tiếp theo của người dùng.
