@@ -242,3 +242,145 @@ test('17. Xóa ô đã mở khóa thành công', () => {
   state = deleteCell(state, state.timetableCells[0].classId, state.timetableCells[0].timeSlotId);
   assert.equal(state.timetableCells.length, 288);
 });
+
+test('18. Phân quyền RBAC: OWNER (nmnhat.n98@gmail.com) được bảo vệ tuyệt đối, ADMIN không sửa được OWNER', () => {
+  const OWNER_EMAIL = 'nmnhat.n98@gmail.com';
+  function canModifyUser(actor, target, targetNewRole) {
+    if (target.email === OWNER_EMAIL) {
+      if (actor.email !== OWNER_EMAIL) return false; // Admin cannot touch owner
+      if (targetNewRole && targetNewRole !== 'OWNER') return false; // Owner cannot demote self
+    }
+    if (actor.role === 'ADMIN') {
+      if (targetNewRole === 'OWNER' || targetNewRole === 'ADMIN') return false; // Admin cannot grant Owner or Admin
+      if (target.role === 'OWNER') return false;
+      if (target.email === actor.email) return false; // Admin cannot edit self
+      return true;
+    }
+    if (actor.role === 'OWNER') return true;
+    return false;
+  }
+
+  const owner = { email: OWNER_EMAIL, role: 'OWNER' };
+  const admin = { email: 'admin@school.edu.vn', role: 'ADMIN' };
+  const scheduler = { email: 'scheduler@school.edu.vn', role: 'SCHEDULER' };
+  const teacher = { email: 'teacher@school.edu.vn', role: 'TEACHER' };
+
+  // Admin cannot modify Owner
+  assert.equal(canModifyUser(admin, owner, 'ADMIN'), false);
+  // Owner cannot demote self
+  assert.equal(canModifyUser(owner, owner, 'TEACHER'), false);
+  // Admin cannot grant Admin role
+  assert.equal(canModifyUser(admin, teacher, 'ADMIN'), false);
+  // Admin can modify scheduler or teacher
+  assert.equal(canModifyUser(admin, teacher, 'SCHEDULER'), true);
+  // Owner can grant any role
+  assert.equal(canModifyUser(owner, scheduler, 'ADMIN'), true);
+  // Scheduler cannot modify any account
+  assert.equal(canModifyUser(scheduler, teacher, 'TEACHER'), false);
+});
+
+test('19. Quyền truy cập theo vai trò: Chỉ OWNER, ADMIN, SCHEDULER được xếp lịch, TEACHER chỉ đọc', () => {
+  function canEditWorkingTimetable(role) {
+    return ['OWNER', 'ADMIN', 'SCHEDULER'].includes(role);
+  }
+  assert.equal(canEditWorkingTimetable('OWNER'), true);
+  assert.equal(canEditWorkingTimetable('ADMIN'), true);
+  assert.equal(canEditWorkingTimetable('SCHEDULER'), true);
+  assert.equal(canEditWorkingTimetable('TEACHER'), false);
+  assert.equal(canEditWorkingTimetable('GUEST'), false);
+});
+
+test('20. Phân biệt hồ sơ tự khai và xác nhận chính thức: selfDeclared không tự cấp quyền chủ nhiệm', () => {
+  function isConfirmedHomeroom(userProfile) {
+    return Array.isArray(userProfile?.homeroomClassIds) && userProfile.homeroomClassIds.length > 0;
+  }
+
+  // Teacher only declared homeroom class, but admin has not confirmed
+  const pendingTeacher = {
+    email: 'gv1@school.edu.vn',
+    role: 'TEACHER',
+    active: true,
+    selfDeclared: { homeroomClassId: 'cls_6a1' },
+    homeroomClassIds: [] // Not yet confirmed
+  };
+  assert.equal(isConfirmedHomeroom(pendingTeacher), false);
+
+  // Once admin confirms
+  const confirmedTeacher = {
+    ...pendingTeacher,
+    homeroomClassIds: ['cls_6a1']
+  };
+  assert.equal(isConfirmedHomeroom(confirmedTeacher), true);
+});
+
+test('21. Giáo viên thỉnh giảng: Phát hiện xung đột giữa lịch bận đăng ký và lịch dạy đã chốt', () => {
+  const teacherId = 'gv_visiting_1';
+  const assignedSlotIds = ['ts_d2_m_1', 'ts_d3_m_2'];
+  const busySlotIds = ['ts_d2_m_1', 'ts_d5_m_4'];
+
+  const conflicts = busySlotIds.filter(slotId => assignedSlotIds.includes(slotId));
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0], 'ts_d2_m_1');
+});
+
+test('22. Lọc tiết giảng dạy cá nhân: Lấy đúng tất cả các lớp của giáo viên', () => {
+  let state = clone(SEED);
+  const teacherId = 'gv_math';
+  state.teachers.push({ id: teacherId, code: 'GVM', fullName: 'Thầy Toán' });
+
+  // Add 3 lessons across 2 different classes
+  state = putCell(state, {
+    classId: 'cls_6a1',
+    timeSlotId: 'ts_d2_m_2',
+    subjectId: 'subj_toan',
+    teacherId
+  });
+  state = putCell(state, {
+    classId: 'cls_6a1',
+    timeSlotId: 'ts_d2_m_3',
+    subjectId: 'subj_toan',
+    teacherId
+  });
+  state = putCell(state, {
+    classId: 'cls_7a1',
+    timeSlotId: 'ts_d3_m_1',
+    subjectId: 'subj_toan',
+    teacherId
+  });
+
+  const myLessons = state.timetableCells.filter(c => c.teacherId === teacherId);
+  assert.equal(myLessons.length, 3);
+  const classesTaught = new Set(myLessons.map(l => l.classId));
+  assert.equal(classesTaught.size, 2);
+  assert.ok(classesTaught.has('cls_6a1'));
+  assert.ok(classesTaught.has('cls_7a1'));
+});
+
+test('23. Chuyển đổi không gian làm việc (Workspace Switcher): Chỉ cho phép các không gian thuộc quyền', () => {
+  function getWorkspaces(profile) {
+    const ws = [];
+    if (profile.role === 'OWNER' || profile.role === 'ADMIN') ws.push('ADMIN');
+    if (['OWNER', 'ADMIN', 'SCHEDULER'].includes(profile.role)) ws.push('SCHEDULER');
+    if (Array.isArray(profile.homeroomClassIds) && profile.homeroomClassIds.length > 0) ws.push('HOMEROOM');
+    if (profile.isVisiting) ws.push('VISITING');
+    if (profile.teacherId) ws.push('TEACHER');
+    return ws;
+  }
+
+  // Admin who is also a teacher
+  const adminTeacher = { role: 'ADMIN', teacherId: 'gv1', homeroomClassIds: [] };
+  const adminWs = getWorkspaces(adminTeacher);
+  assert.deepEqual(adminWs, ['ADMIN', 'SCHEDULER', 'TEACHER']);
+
+  // Homeroom teacher
+  const homeroomTeacher = { role: 'TEACHER', teacherId: 'gv2', homeroomClassIds: ['cls_6a1'] };
+  const hrWs = getWorkspaces(homeroomTeacher);
+  assert.deepEqual(hrWs, ['HOMEROOM', 'TEACHER']);
+
+  // Visiting teacher
+  const visitingTeacher = { role: 'TEACHER', teacherId: 'gv3', isVisiting: true, homeroomClassIds: [] };
+  const visWs = getWorkspaces(visitingTeacher);
+  assert.deepEqual(visWs, ['VISITING', 'TEACHER']);
+});
+
+

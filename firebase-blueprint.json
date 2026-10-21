@@ -1,0 +1,143 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User permission and profile keyed by lowercase Google email.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Google email address in lowercase.",
+          "maxLength": 128
+        },
+        "role": {
+          "type": "string",
+          "description": "System role: OWNER, ADMIN, SCHEDULER, or TEACHER.",
+          "enum": ["OWNER", "ADMIN", "SCHEDULER", "TEACHER"]
+        },
+        "teacherId": {
+          "type": "string",
+          "description": "Official linked teacher ID confirmed by administrator.",
+          "maxLength": 64
+        },
+        "isVisiting": {
+          "type": "boolean",
+          "description": "Whether the teacher is a visiting / guest lecturer."
+        },
+        "homeroomClassIds": {
+          "type": "array",
+          "description": "List of official confirmed homeroom class IDs."
+        },
+        "selfDeclared": {
+          "type": "object",
+          "description": "Self-declared teacher profile waiting for administrator confirmation."
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether user access is currently enabled."
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Full display name from Google account.",
+          "maxLength": 150
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update."
+        },
+        "updatedBy": {
+          "type": "string",
+          "description": "Email of author who performed the update.",
+          "maxLength": 128
+        }
+      },
+      "required": ["email", "role", "active"]
+    },
+    "WorkingTimetable": {
+      "title": "WorkingTimetable",
+      "description": "The collaborative working timetable draft.",
+      "type": "object",
+      "properties": {
+        "revision": { "type": "number" },
+        "school": { "type": "object" },
+        "classes": { "type": "array" },
+        "subjects": { "type": "array" },
+        "teachers": { "type": "array" },
+        "timeSlots": { "type": "array" },
+        "timetableCells": { "type": "array" },
+        "versions": { "type": "array" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["revision", "school", "classes", "subjects", "teachers", "timeSlots", "timetableCells"]
+    },
+    "PublishedTimetable": {
+      "title": "PublishedTimetable",
+      "description": "The published, read-only snapshot accessible to teachers and staff.",
+      "type": "object",
+      "properties": {
+        "isPublished": { "type": "boolean" },
+        "name": { "type": "string", "maxLength": 120 },
+        "publishedAt": { "type": "string" },
+        "publishedBy": { "type": "string" },
+        "data": { "type": "object" }
+      },
+      "required": ["isPublished"]
+    },
+    "AdjustmentRequest": {
+      "title": "AdjustmentRequest",
+      "description": "Timetable adjustment request submitted by teacher.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherEmail": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "classId": { "type": "string" },
+        "timeSlotId": { "type": "string" },
+        "reason": { "type": "string", "maxLength": 500 },
+        "proposal": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+        "responseNote": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "teacherEmail", "reason", "status", "createdAt"]
+    },
+    "TeacherAvailability": {
+      "title": "TeacherAvailability",
+      "description": "Visiting teacher teaching availability and preferences.",
+      "type": "object",
+      "properties": {
+        "teacherEmail": { "type": "string" },
+        "availableSlotIds": { "type": "array" },
+        "busySlotIds": { "type": "array" },
+        "dateRange": { "type": "object" },
+        "note": { "type": "string", "maxLength": 500 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["teacherEmail", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userEmail}": {
+      "schema": "User",
+      "description": "User permission profile keyed by lowercase Google email."
+    },
+    "/timetables/working": {
+      "schema": "WorkingTimetable",
+      "description": "Draft timetable edited by schedulers and administrators."
+    },
+    "/timetables/published": {
+      "schema": "PublishedTimetable",
+      "description": "Public timetable snapshot visible to teachers and staff."
+    },
+    "/requests/{requestId}": {
+      "schema": "AdjustmentRequest",
+      "description": "Adjustment requests from teachers to schedulers/administrators."
+    },
+    "/availabilities/{userEmail}": {
+      "schema": "TeacherAvailability",
+      "description": "Visiting teacher availability registration."
+    }
+  }
+}

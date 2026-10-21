@@ -1,0 +1,201 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny for all unspecified paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null &&
+        request.auth.token.email != null &&
+        request.auth.token.email_verified == true;
+    }
+
+    function userEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    function isOwnerEmail(email) {
+      return email == 'nmnhat.n98@gmail.com';
+    }
+
+    function isRegistered(email) {
+      return exists(/databases/$(database)/documents/users/$(email));
+    }
+
+    function getUserData(email) {
+      return get(/databases/$(database)/documents/users/$(email)).data;
+    }
+
+    function isActive(email) {
+      return isRegistered(email) && getUserData(email).active == true;
+    }
+
+    function isOwner() {
+      return isSignedIn() && (
+        isOwnerEmail(userEmail()) ||
+        (isActive(userEmail()) && getUserData(userEmail()).role == 'OWNER')
+      );
+    }
+
+    function isAdmin() {
+      return isOwner() || (
+        isSignedIn() &&
+        isActive(userEmail()) &&
+        getUserData(userEmail()).role == 'ADMIN'
+      );
+    }
+
+    function isScheduler() {
+      return isAdmin() || (
+        isSignedIn() &&
+        isActive(userEmail()) &&
+        getUserData(userEmail()).role == 'SCHEDULER'
+      );
+    }
+
+    function isTeacher() {
+      return isScheduler() || (
+        isSignedIn() &&
+        isActive(userEmail()) &&
+        getUserData(userEmail()).role == 'TEACHER'
+      );
+    }
+
+    function isValidRole(role) {
+      return role in ['OWNER', 'ADMIN', 'SCHEDULER', 'TEACHER'];
+    }
+
+    // Collection: users
+    match /users/{targetEmail} {
+      // User can read their own profile, or admins/owners can read profiles
+      allow get: if isSignedIn() && (
+        userEmail() == targetEmail ||
+        isAdmin() ||
+        isScheduler()
+      );
+
+      // Only admins and owner can list all users
+      allow list: if isAdmin();
+
+      // Bootstrap or user creation
+      allow create: if isSignedIn() && (
+        // Bootstrap OWNER on first sign-in
+        (
+          targetEmail == 'nmnhat.n98@gmail.com' &&
+          userEmail() == 'nmnhat.n98@gmail.com' &&
+          request.resource.data.email == 'nmnhat.n98@gmail.com' &&
+          request.resource.data.role == 'OWNER' &&
+          request.resource.data.active == true
+        ) ||
+        // Teacher submitting self-declared profile for the first time
+        (
+          targetEmail == userEmail() &&
+          request.resource.data.email == userEmail() &&
+          request.resource.data.role == 'TEACHER' &&
+          request.resource.data.active == false
+        ) ||
+        // OWNER can create any other account
+        (
+          isOwner() &&
+          isValidRole(request.resource.data.role) &&
+          request.resource.data.email == targetEmail
+        ) ||
+        // ADMIN can create SCHEDULER or TEACHER accounts
+        (
+          isAdmin() &&
+          !isOwnerEmail(targetEmail) &&
+          request.resource.data.role in ['SCHEDULER', 'TEACHER'] &&
+          request.resource.data.email == targetEmail
+        )
+      );
+
+      // Update user
+      allow update: if isSignedIn() && (
+        // Self update of selfDeclared profile by user without modifying role/active/official fields
+        (
+          targetEmail == userEmail() &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.active == resource.data.active &&
+          request.resource.data.email == resource.data.email &&
+          (!('teacherId' in resource.data) || request.resource.data.teacherId == resource.data.teacherId) &&
+          (!('isVisiting' in resource.data) || request.resource.data.isVisiting == resource.data.isVisiting) &&
+          (!('homeroomClassIds' in resource.data) || request.resource.data.homeroomClassIds == resource.data.homeroomClassIds)
+        ) ||
+        // Self update of non-role display properties by OWNER
+        (
+          isOwnerEmail(targetEmail) &&
+          userEmail() == 'nmnhat.n98@gmail.com' &&
+          request.resource.data.role == 'OWNER' &&
+          request.resource.data.active == true
+        ) ||
+        // OWNER can update any user except cannot demote or deactivate self
+        (
+          isOwner() &&
+          !(targetEmail == userEmail() && (request.resource.data.role != 'OWNER' || request.resource.data.active != true)) &&
+          isValidRole(request.resource.data.role) &&
+          request.resource.data.email == targetEmail
+        ) ||
+        // ADMIN can update other users (cannot touch OWNER or grant OWNER/ADMIN, cannot touch self)
+        (
+          isAdmin() &&
+          !isOwnerEmail(targetEmail) &&
+          targetEmail != userEmail() &&
+          request.resource.data.role in ['SCHEDULER', 'TEACHER'] &&
+          resource.data.role != 'OWNER' &&
+          request.resource.data.email == targetEmail
+        )
+      );
+
+      // Delete user: only OWNER, cannot delete self
+      allow delete: if isOwner() && targetEmail != userEmail() && !isOwnerEmail(targetEmail);
+    }
+
+    // Collection: timetables
+    match /timetables/{docId} {
+      // Working draft: only OWNER, ADMIN, SCHEDULER can read/write
+      allow read, write: if docId == 'working' && isScheduler();
+
+      // Published snapshot: TEACHER, SCHEDULER, ADMIN, OWNER can read
+      // Only SCHEDULER, ADMIN, OWNER can publish or unpublish
+      allow read: if docId == 'published' && isTeacher();
+      allow write: if docId == 'published' && isScheduler();
+    }
+
+    // Collection: requests (Adjustment Requests)
+    match /requests/{requestId} {
+      allow read: if isSignedIn() && (
+        resource.data.teacherEmail == userEmail() ||
+        isScheduler()
+      );
+      allow create: if isSignedIn() && (
+        request.resource.data.teacherEmail == userEmail() &&
+        request.resource.data.status == 'PENDING'
+      );
+      allow update: if isSignedIn() && (
+        // Author teacher updating while PENDING
+        (resource.data.teacherEmail == userEmail() && resource.data.status == 'PENDING') ||
+        // Scheduler/Admin updating status
+        isScheduler()
+      );
+      allow delete: if isSignedIn() && (
+        (resource.data.teacherEmail == userEmail() && resource.data.status == 'PENDING') ||
+        isAdmin()
+      );
+    }
+
+    // Collection: availabilities (Visiting teacher availability)
+    match /availabilities/{targetEmail} {
+      allow read: if isSignedIn() && (
+        targetEmail == userEmail() ||
+        isScheduler()
+      );
+      allow write: if isSignedIn() && (
+        targetEmail == userEmail() ||
+        isScheduler()
+      );
+    }
+  }
+}
