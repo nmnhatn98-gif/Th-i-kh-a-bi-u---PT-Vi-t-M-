@@ -269,3 +269,105 @@
 .popover-clear-slot-btn:hover{background:#fee2e2;color:#b91c1c}
 .popover-goto-matrix-btn{font-size:10px;font-weight:600;background:#e6f4ea;color:#137333;border:1px solid #b7e1cd;padding:5px 9px;border-radius:5px;cursor:pointer}
 
+/* ==================================================== */
+/* VA SCHOOLS (#8C0D36) STUDENT TIMETABLE & EXPORT CARD */
+/* ==================================================== */
+.va-timetable-wrapper{display:flex;flex-direction:column;gap:18px}
+.va-controls-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:12px 18px;flex-wrap:wrap;box-shadow:0 2px 8px rgba(0,0,0,0.03)}
+.va-toolbar-left{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.va-toolbar-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.va-label{font-size:11px;font-weight:700;color:#8C0D36;letter-spacing:0.5px}
+.va-class-select{font-size:12px;font-weight:700;color:#8C0D36;border:1.5px solid #8C0D36;border-radius:7px;padding:6px 12px;background:#fff;cursor:pointer}
+.va-class-select:focus{outline:2px solid #8C0D36}
+.va-grade-pills{display:flex;gap:3px;background:#fdf2f4;padding:3px;border-radius:8px;border:1px solid #f9d8e0}
+.va-grade-btn{border:none;background:transparent;font-size:10px;font-weight:600;color:#8C0D36;padding:5px 9px;border-radius:6px;cursor:pointer;transition:all .15s}
+.va-grade-btn:hover{background:#fae3e8}
+.va-grade-btn.active{background:#8C0D36;color:#ffffff;font-weight:700;box-shadow:0 1px 4px rgba(140,13,54,0.25)}
+
+/* Export Button */
+.btn-va-export{display:inline-flex;align-items:center;gap:8px;background:#8C0D36;color:#ffffff;border:1px solid #75092c;font-weight:700;font-size:12px;padding:8px 16px;border-radius:8px;cursor:pointer;transition:all .15s;box-shadow:0 3px 10px rgba(140,13,54,0.25)}
+.btn-va-export:hover{background:#a31140;transform:translateY(-1px);box-shadow:0 5px 14px rgba(140,13,54,0.35)}
+.btn-va-export:active{transform:translateY(0)}
+.btn-va-export.loading{opacity:0.85;cursor:wait;pointer-events:none}
+.btn-va-print{display:inline-flex;align-items:center;gap:6px;background:#fff;color:#374151;border:1px solid #d1d5db;font-size:11px;font-weight:600;padding:8px 12px;border-radius:8px;cursor:pointer;transition:background .15s}
+.btn-va-print:hover{background:#f9fafb;border-color:#9ca3af}
+.btn-va-edit-week{display:inline-flex;align-items:center;gap:6px;background:#fdf2f4;color:#8C0D36;border:1px solid #f4c2cc;font-size:11px;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;transition:all .15s}
+.btn-va-edit-week:hover{background:#fae3e8;border-color:#8C0D36}
+.va-spinner{width:14px;height:14px;border:2px solid #ffffff;border-top-color:transparent;border-radius:50%;animation:vaSpin .75s linear infinite;display:inline-block}
+@keyframes vaSpin{to{transform:rotate(360deg)}}
+
+/* Capture Card */
+/* Capture Card */
+.va-timetable-card{background:#ffffff;border:3px solid #8C0D36;border-radius:18px;box-shadow:0 10px 35px rgba(140,13,54,0.1);padding:24px 28px 22px;margin:0 auto;max-width:1120px;width:100%;box-sizing:border-box;color:#1f2937}
+
+/* Header */
+.va-card-header{position:relative;display:flex;align-items:center;justify-content:center;min-height:94px;padding-bottom:14px;border-bottom:2px solid #f3d4dc}
+.va-header-logo{position:absolute;left:0;top:50%;transform:translateY(-50%);display:flex;align-items:center}
+.va-logo-img{width:92px;height:92px;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(140,13,54,0.15))}
+.va-header-center{text-align:center;display:flex;flex-direction:column;align-items:center;gap:4px;width:100%}
+.va-title{font-size:25px;font-weight:900;color:#8C0D36;margin:2px 0 4px;letter-spacing:1px;text-transform:uppercase}
+.va-subtitle{font-size:12px;color:#4b5563;font-weight:600;display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap}
+.va-class-tag{background:#8C0D36;color:#ffffff;padding:2px 10px;border-radius:6px;font-weight:800;font-size:12px;letter-spacing:0.5px}
+
+/* Week & Date Pill */
+.va-week-pill-container{margin-top:6px;display:flex;align-items:center;justify-content:center}
+.va-week-pill{display:inline-flex;align-items:center;gap:8px;background:#fff5f7;border:1.5px solid #8C0D36;border-radius:30px;padding:5px 16px;color:#8C0D36;font-size:12px;font-weight:700;box-shadow:0 2px 6px rgba(140,13,54,0.08)}
+.va-pill-icon{font-size:13px}
+.va-pill-week-part{font-weight:800;color:#8C0D36;padding:2px 6px;border-radius:4px;transition:all .15s}
+.va-pill-sep{font-weight:800;color:#8C0D36}
+.va-pill-dates-part{font-weight:600;color:#8C0D36;padding:2px 6px;border-radius:4px;transition:all .15s}
+.va-pill-week-part.va-editable:hover,.va-pill-dates-part.va-editable:hover{background:#fae3e8;outline:1px dashed #8C0D36;cursor:text}
+.va-pill-week-part.va-editable:focus,.va-pill-dates-part.va-editable:focus{background:#fff;outline:2px solid #8C0D36;color:#184239}
+.va-pill-edit-icon-btn{border:none;background:#8C0D36;color:#ffffff;border-radius:50%;width:22px;height:22px;font-size:10px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;margin-left:4px;transition:transform .15s}
+.va-pill-edit-icon-btn:hover{transform:scale(1.15);background:#a31140}
+
+/* Toolbar Extra Badges & Buttons */
+.va-locked-info{display:inline-flex;align-items:center;gap:6px;background:#fff5f7;border:1.5px solid #8C0D36;border-radius:8px;padding:6px 14px;color:#8C0D36;font-size:12px;font-weight:700}
+.btn-va-edit-subject{display:inline-flex;align-items:center;gap:6px;background:#fff5f7;color:#8C0D36;border:1.5px solid #8C0D36;font-size:11px;font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;transition:all .15s}
+.btn-va-edit-subject:hover{background:#fae3e8;border-color:#700829}
+.btn-va-edit-subject.active{background:#8C0D36;color:#ffffff}
+
+/* Timetable Table */
+.va-table-scroll{overflow-x:auto;margin:16px 0 6px}
+.va-timetable-table{width:100%;border-collapse:collapse;border:2px solid #8C0D36;font-size:11px;text-align:center;table-layout:fixed;background:#fff}
+.va-timetable-table th,.va-timetable-table td{border:1px solid #eed8dd;padding:0}
+.va-table-thead th{background:#8C0D36;color:#ffffff;font-weight:800;font-size:11px;padding:10px 4px;letter-spacing:0.6px;border:1px solid #75092c;text-transform:uppercase}
+.va-session-th{font-weight:900;font-size:11px;letter-spacing:1px;border:1px solid #eed8dd;width:55px}
+.va-session-morning{background:#fff8f9;color:#8C0D36}
+.va-session-afternoon{background:#fdf5f7;color:#8C0D36}
+.va-period-th{background:#fafafa;color:#8C0D36;font-weight:800;font-size:12px;border:1px solid #eed8dd;width:40px;padding:6px 2px}
+.va-time-td{background:#ffffff;color:#6b7280;font-size:10px;line-height:1.4;border:1px solid #eed8dd;width:88px;padding:6px 2px}
+.va-time-td span{font-size:9px;color:#9ca3af;display:block}
+
+/* Cells (Pure subject, zero teacher prefix/name) */
+.va-lesson-cell{height:58px;padding:3px;vertical-align:middle;background:#ffffff;transition:background .15s}
+.va-cell-box{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px;height:100%;padding:6px 4px;border-radius:6px;background:color-mix(in srgb, var(--subj-color, #8C0D36) 13%, #ffffff);border-left:3.5px solid var(--subj-color, #8C0D36);box-sizing:border-box;transition:all .15s}
+.va-subject-title{font-weight:800;font-size:13px;color:#184239;line-height:1.2;text-align:center;max-width:145px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.va-cell-note-tag{font-size:9px;color:#6b7280;font-style:italic;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.va-cell-empty-mark{color:#d1d5db;font-size:16px}
+.va-cell-clickable{cursor:pointer}
+.va-cell-clickable:hover .va-cell-box{transform:scale(1.02);box-shadow:0 3px 10px rgba(140,13,54,0.18)}
+.va-cell-clickable:hover .va-cell-empty-mark{color:#8C0D36;font-weight:bold}
+
+/* Noon Row */
+.va-noon-row td{background:#fff9ed;border-top:2px solid #8C0D36;border-bottom:2px solid #8C0D36;padding:7px 10px;color:#8C0D36;font-weight:800;font-size:11px;letter-spacing:1px;text-align:center}
+
+/* Export High-Res Preview Modal */
+.va-preview-modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(15,23,42,0.75);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px}
+.va-preview-modal-box{background:#ffffff;border-radius:16px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.3);max-width:920px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;border:2.5px solid #8C0D36}
+.va-preview-modal-header{padding:14px 20px;background:#8C0D36;color:#ffffff;display:flex;align-items:center;justify-content:space-between}
+.va-preview-modal-body{padding:16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;align-items:center;background:#f9fafb}
+.va-preview-img-container{max-width:100%;border-radius:10px;overflow:hidden;border:1.5px solid #eed8dd;box-shadow:0 4px 14px rgba(0,0,0,0.08);background:#fff}
+.va-preview-img{display:block;max-width:100%;height:auto;max-height:55vh;object-fit:contain}
+.va-preview-modal-footer{padding:12px 20px;background:#ffffff;border-top:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+
+/* Responsive */
+@media(max-width: 900px){
+  .va-card-header{flex-direction:column;text-align:center;min-height:auto}
+  .va-header-logo{position:static;transform:none;margin-bottom:8px}
+  .va-timetable-card{padding:14px}
+  .va-title{font-size:20px}
+}
+
+
+

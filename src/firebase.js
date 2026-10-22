@@ -14,6 +14,8 @@ import {
   updateDoc,
   deleteDoc,
   collection,
+  query,
+  where,
   onSnapshot,
   getDocFromServer
 } from 'firebase/firestore';
@@ -77,5 +79,7 @@ export {
   updateDoc,
   deleteDoc,
   collection,
+  query,
+  where,
   onSnapshot
 };

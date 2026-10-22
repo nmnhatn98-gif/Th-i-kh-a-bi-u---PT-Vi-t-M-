@@ -167,3 +167,29 @@ test('37. removeLessonFromScheduleCell xóa đúng tiết khỏi draftSchedule v
   assert.ok(!cleared.draftSchedule.some(c => c.classId === 'cls_6a1' && c.timeSlotId === 'ts_d2_m_2'));
   assert.ok(!cleared.timetableCells.some(c => c.classId === 'cls_6a1' && c.timeSlotId === 'ts_d2_m_2'));
 });
+
+test('38. normalizeState khởi tạo và duy trì currentWeek, weekDates cho school và weekInfo cho classes', () => {
+  const state = normalizeState(clone(SEED));
+  assert.ok(state.school.currentWeek, 'School should have currentWeek');
+  assert.ok(state.school.weekDates, 'School should have weekDates');
+  for (const c of state.classes) {
+    assert.ok(c.weekInfo, `Class ${c.name} should have weekInfo`);
+    assert.ok(c.weekInfo.week, `Class ${c.name} should have weekInfo.week`);
+    assert.ok(c.weekInfo.dates, `Class ${c.name} should have weekInfo.dates`);
+  }
+});
+
+test('39. Định dạng tên file xuất ảnh TKB chuẩn: TKB_[TenLop]_Tuan_[SoTuan].png', () => {
+  function computeExportFileName(className, weekRaw) {
+    const cleanClassName = className.replace(/^Lớp\s*/i, '').trim().replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, '');
+    const weekDigits = weekRaw.match(/\d+/);
+    const cleanWeek = weekDigits ? weekDigits[0] : weekRaw.replace(/[^a-zA-Z0-9]/g, '');
+    return `TKB_${cleanClassName}_Tuan_${cleanWeek}.png`;
+  }
+
+  assert.equal(computeExportFileName('10XH', 'Tuần 8'), 'TKB_10XH_Tuan_8.png');
+  assert.equal(computeExportFileName('Lớp 10XH', 'Tuần 8'), 'TKB_10XH_Tuan_8.png');
+  assert.equal(computeExportFileName('12TN', 'Tuần 10'), 'TKB_12TN_Tuan_10.png');
+  assert.equal(computeExportFileName('6A1', '8'), 'TKB_6A1_Tuan_8.png');
+});
+

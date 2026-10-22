@@ -166,9 +166,13 @@ service cloud.firestore {
 
     // Collection: requests (Adjustment Requests)
     match /requests/{requestId} {
-      allow read: if isSignedIn() && (
+      allow get: if isSignedIn() && (
         resource.data.teacherEmail == userEmail() ||
         isScheduler()
+      );
+      allow list: if isSignedIn() && (
+        isScheduler() ||
+        resource.data.teacherEmail == userEmail()
       );
       allow create: if isSignedIn() && (
         request.resource.data.teacherEmail == userEmail() &&
