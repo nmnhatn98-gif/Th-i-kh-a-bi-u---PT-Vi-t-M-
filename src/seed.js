@@ -1,5 +1,5 @@
 // Danh mục và khung ma trận từ repo gốc, commit 1c85b67. Không phải dữ liệu Firebase trực tiếp.
-export const SEED = {
+const RAW_SEED = {
   "schemaVersion": 1,
   "school": {
     "name": "Trường THCS & THPT",
@@ -3343,4 +3343,44 @@ export const SEED = {
   ],
   "versions": [],
   "published": null
+};
+
+const clbClassesT3 = new Set(['cls_8a1', 'cls_8a2', 'cls_8a3', 'cls_9a1', 'cls_9a2', 'cls_9a3', 'cls_10tn', 'cls_10xh', 'cls_11']);
+const clbClassesT5 = new Set(['cls_6a1', 'cls_6a2', 'cls_6a3', 'cls_7a1', 'cls_7a2', 'cls_7a3']);
+
+export const SEED = {
+  ...RAW_SEED,
+  timetableCells: RAW_SEED.timetableCells.filter(cell => {
+    const { classId, timeSlotId, subjectId } = cell;
+
+    // 1. Xoá tiết cố định TA ESL ở 2 lớp 12XH và 12TN vào các tiết chiều thứ 2, thứ tư, thứ sáu
+    if ((classId === 'cls_12xh' || classId === 'cls_12tn') &&
+        subjectId === 'subj_ta_esl' &&
+        /^ts_d[246]_a_[1-4]$/.test(timeSlotId)) {
+      return false;
+    }
+
+    // 2. Chiều thứ 3 lớp 8A1, 8A2, 8A3, 9A1, 9A2, 9A3, 10TN, 10XH và 11 xoá tiết 3, 4 cố định CLB
+    if (clbClassesT3.has(classId) &&
+        subjectId === 'subj_clb' &&
+        (timeSlotId === 'ts_d3_a_3' || timeSlotId === 'ts_d3_a_4')) {
+      return false;
+    }
+
+    // 3. Chiều thứ 5 lớp 6A1, 6A2, 6A3, 7A1, 7A2, 7A3 xoá tiết 3, 4 cố định CLB
+    if (clbClassesT5.has(classId) &&
+        subjectId === 'subj_clb' &&
+        (timeSlotId === 'ts_d5_a_3' || timeSlotId === 'ts_d5_a_4')) {
+      return false;
+    }
+
+    // 4. Lớp 12TN và 12XH thứ 3 và thứ 5 chiều tiết 3-4 không có tiết câu lạc bộ
+    if ((classId === 'cls_12xh' || classId === 'cls_12tn') &&
+        subjectId === 'subj_clb' &&
+        (timeSlotId === 'ts_d3_a_3' || timeSlotId === 'ts_d3_a_4' || timeSlotId === 'ts_d5_a_3' || timeSlotId === 'ts_d5_a_4')) {
+      return false;
+    }
+
+    return true;
+  })
 };

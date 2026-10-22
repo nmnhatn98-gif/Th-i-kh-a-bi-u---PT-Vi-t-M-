@@ -27,9 +27,15 @@ export function assignTeacherToClassSubject(state, { classId, subjectId, teacher
     throw Error('Giáo viên không tồn tại.');
   }
 
+  // 1. Synchronize draftAssignments
+  let nextAssignments = (state.draftAssignments || []).filter(a => !(a.classId === classId && a.subjectId === subjectId));
+  if (teacherId) {
+    nextAssignments.push({ classId, subjectId, teacherId });
+  }
+
+  // 2. Synchronize teachers assignments
   const nextTeachers = (state.teachers || []).map(t => {
     let assignments = Array.isArray(t.assignments) ? [...t.assignments] : [];
-    // If this teacher had this classId + subjectId, and is NOT the target teacher, remove it
     if (t.id !== teacherId) {
       assignments = assignments.filter(a => !(a.classId === classId && a.subjectId === subjectId));
     } else {
@@ -40,7 +46,13 @@ export function assignTeacherToClassSubject(state, { classId, subjectId, teacher
     return { ...t, assignments };
   });
 
-  // Keep timetableCells synchronized for this class & subject
+  // 3. Keep draftSchedule & timetableCells synchronized for this class & subject
+  const nextSchedule = (state.draftSchedule || []).map(cell => {
+    if (cell.classId === classId && cell.subjectId === subjectId) {
+      return { ...cell, teacherId: teacherId || '' };
+    }
+    return cell;
+  });
   const nextCells = (state.timetableCells || []).map(cell => {
     if (cell.classId === classId && cell.subjectId === subjectId) {
       return { ...cell, teacherId: teacherId || '' };
@@ -50,7 +62,9 @@ export function assignTeacherToClassSubject(state, { classId, subjectId, teacher
 
   return {
     ...state,
+    draftAssignments: nextAssignments,
     teachers: nextTeachers,
+    draftSchedule: nextSchedule,
     timetableCells: nextCells
   };
 }
@@ -60,14 +74,21 @@ export function unassignClassSubject(state, { classId, subjectId }) {
 }
 
 export function getAssignedTeacher(state, classId, subjectId) {
-  // First check teacher assignments
+  // Check draftAssignments first
+  const draftItem = (state.draftAssignments || []).find(a => a.classId === classId && a.subjectId === subjectId);
+  if (draftItem && draftItem.teacherId) {
+    const t = (state.teachers || []).find(tea => tea.id === draftItem.teacherId);
+    if (t) return t;
+  }
+
+  // Check teacher assignments
   const byAssignment = (state.teachers || []).find(t =>
     Array.isArray(t.assignments) && t.assignments.some(a => a.classId === classId && a.subjectId === subjectId)
   );
   if (byAssignment) return byAssignment;
 
   // Fallback to timetable cells
-  const cell = (state.timetableCells || []).find(c => c.classId === classId && c.subjectId === subjectId && c.teacherId);
+  const cell = (state.timetableCells || state.draftSchedule || []).find(c => c.classId === classId && c.subjectId === subjectId && c.teacherId);
   if (cell?.teacherId) {
     return (state.teachers || []).find(t => t.id === cell.teacherId) || null;
   }
@@ -156,8 +177,215 @@ export function publish(state) {
   };
 }
 
+const REMOVED_CLB_CLASSES_T3 = new Set(['cls_8a1', 'cls_8a2', 'cls_8a3', 'cls_9a1', 'cls_9a2', 'cls_9a3', 'cls_10tn', 'cls_10xh', 'cls_11']);
+const REMOVED_CLB_CLASSES_T5 = new Set(['cls_6a1', 'cls_6a2', 'cls_6a3', 'cls_7a1', 'cls_7a2', 'cls_7a3']);
+
+export function isRemovedFixedCell(cell) {
+  if (!cell) return false;
+  const { classId, timeSlotId, subjectId } = cell;
+
+  // 1. Xoá tiết cố định TA ESL ở 2 lớp 12XH và 12TN vào các tiết chiều thứ 2, thứ tư, thứ sáu
+  if ((classId === 'cls_12xh' || classId === 'cls_12tn') &&
+      subjectId === 'subj_ta_esl' &&
+      /^ts_d[246]_a_[1-4]$/.test(timeSlotId)) {
+    return true;
+  }
+
+  // 2. Chiều thứ 3 lớp 8A1, 8A2, 8A3, 9A1, 9A2, 9A3, 10TN, 10XH và 11 xoá tiết 3, 4 cố định CLB
+  if (REMOVED_CLB_CLASSES_T3.has(classId) &&
+      subjectId === 'subj_clb' &&
+      (timeSlotId === 'ts_d3_a_3' || timeSlotId === 'ts_d3_a_4')) {
+    return true;
+  }
+
+  // 3. Chiều thứ 5 lớp 6A1, 6A2, 6A3, 7A1, 7A2, 7A3 xoá tiết 3, 4 cố định CLB
+  if (REMOVED_CLB_CLASSES_T5.has(classId) &&
+      subjectId === 'subj_clb' &&
+      (timeSlotId === 'ts_d5_a_3' || timeSlotId === 'ts_d5_a_4')) {
+    return true;
+  }
+
+  // 4. Lớp 12TN và 12XH thứ 3 và thứ 5 chiều tiết 3-4 không có tiết câu lạc bộ (CLB)
+  if ((classId === 'cls_12xh' || classId === 'cls_12tn') &&
+      subjectId === 'subj_clb' &&
+      (timeSlotId === 'ts_d3_a_3' || timeSlotId === 'ts_d3_a_4' || timeSlotId === 'ts_d5_a_3' || timeSlotId === 'ts_d5_a_4')) {
+    return true;
+  }
+
+  return false;
+}
+
+export function filterRemovedFixedCells(cells = []) {
+  return (cells || []).filter(c => !isRemovedFixedCell(c));
+}
+
+export function isTeacherBusy(teacherId, day, period, currentClassId, schedule = [], timeSlotId = '') {
+  if (!teacherId || !schedule || !Array.isArray(schedule)) return { isBusy: false, conflictingClass: null, conflictingCell: null };
+
+  const cell = schedule.find(c => {
+    if (!c.teacherId || c.teacherId !== teacherId) return false;
+    // Don't flag conflict with the same class's cell
+    if (currentClassId && c.classId === currentClassId) {
+      if (timeSlotId && c.timeSlotId === timeSlotId) return false;
+      if (String(c.day) === String(day) && Number(c.period) === Number(period)) return false;
+    }
+
+    if (timeSlotId && c.timeSlotId) {
+      return c.timeSlotId === timeSlotId;
+    }
+    return String(c.day) === String(day) && Number(c.period) === Number(period);
+  });
+
+  if (cell) {
+    return {
+      isBusy: true,
+      conflictingClass: { id: cell.classId, name: cell.classId },
+      conflictingCell: cell,
+      classId: cell.classId
+    };
+  }
+  return { isBusy: false, conflictingClass: null, conflictingCell: null };
+}
+
+export function formatPublicationTime(date = new Date()) {
+  const d = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return '';
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const MM = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${hh}:${mm} - ${dd}/${MM}/${yyyy}`;
+}
+
+export function publishDraft(state) {
+  const draft = clone(state);
+  normalizeState(draft);
+  draft.publishedAssignments = clone(draft.draftAssignments || []);
+  draft.publishedSchedule = clone(draft.draftSchedule || []);
+  draft.lastPublishedAt = formatPublicationTime(new Date());
+  draft.published = {
+    ...makeSnapshot(draft, 'Bản đã chốt'),
+    publishedAt: new Date().toISOString(),
+    displayTime: draft.lastPublishedAt
+  };
+  draft.activeVersion = 'published';
+  return draft;
+}
+
+export function restoreDraftFromPublished(state) {
+  const draft = clone(state);
+  normalizeState(draft);
+  if (!draft.publishedSchedule || draft.publishedSchedule.length === 0) {
+    if (draft.published?.data?.timetableCells) {
+      draft.publishedSchedule = clone(draft.published.data.timetableCells);
+    }
+  }
+  draft.draftAssignments = clone(draft.publishedAssignments || []);
+  draft.draftSchedule = clone(draft.publishedSchedule || []);
+  draft.timetableCells = clone(draft.draftSchedule || []);
+  draft.activeVersion = 'draft';
+  return draft;
+}
+
+export function assignLessonToScheduleCell(state, { classId, timeSlotId, day, period, subjectId, teacherId, note = '', allowConflict = false }) {
+  const slot = (state.timeSlots || []).find(s => s.id === timeSlotId);
+  const actualSlotId = timeSlotId || slot?.id || '';
+  const dayName = day || slot?.dayName || `Thứ ${slot?.dayOfWeek || ''}`;
+  const periodNum = period !== undefined ? Number(period) : (slot?.period || 1);
+
+  if (!allowConflict && teacherId) {
+    const busy = isTeacherBusy(teacherId, dayName, periodNum, classId, state.draftSchedule, actualSlotId);
+    if (busy && busy.isBusy) {
+      const conflictCls = busy.conflictingClass || (state.classes || []).find(c => c.id === busy.classId);
+      throw Error(`Giáo viên đã có lịch tại ${conflictCls?.name || 'lớp khác'} trong tiết này.`);
+    }
+  }
+
+  // Find existing cell strictly for this class in this exact slot
+  const existingIdx = (state.draftSchedule || []).findIndex(c => {
+    if (c.classId !== classId) return false;
+    if (actualSlotId && c.timeSlotId) return c.timeSlotId === actualSlotId;
+    return c.day === dayName && Number(c.period) === periodNum;
+  });
+
+  const prevCell = existingIdx !== -1 ? state.draftSchedule[existingIdx] : null;
+  if (prevCell?.locked) {
+    throw Error('Ô này đang khóa. Hãy mở khóa trước khi sửa.');
+  }
+
+  const newCell = {
+    id: prevCell?.id || uid(),
+    day: dayName,
+    period: periodNum,
+    timeSlotId: actualSlotId,
+    classId,
+    subjectId,
+    teacherId: teacherId || '',
+    locked: false,
+    note: note || prevCell?.note || ''
+  };
+
+  const nextSchedule = [...(state.draftSchedule || [])];
+  if (existingIdx !== -1) {
+    nextSchedule[existingIdx] = newCell;
+  } else {
+    nextSchedule.push(newCell);
+  }
+
+  const nextCells = (state.timetableCells || []).filter(c => {
+    if (c.classId !== classId) return true;
+    if (actualSlotId && c.timeSlotId) return c.timeSlotId !== actualSlotId;
+    return true;
+  });
+  nextCells.push(newCell);
+
+  return {
+    ...state,
+    draftSchedule: nextSchedule,
+    timetableCells: nextCells
+  };
+}
+
+export function removeLessonFromScheduleCell(state, { classId, timeSlotId, day, period }) {
+  const slot = (state.timeSlots || []).find(s => s.id === timeSlotId);
+  const actualSlotId = timeSlotId || slot?.id || '';
+  const dayName = day || slot?.dayName || `Thứ ${slot?.dayOfWeek || ''}`;
+  const periodNum = period !== undefined ? Number(period) : (slot?.period || 1);
+
+  const prevCell = (state.draftSchedule || []).find(c => {
+    if (c.classId !== classId) return false;
+    if (actualSlotId && c.timeSlotId) return c.timeSlotId === actualSlotId;
+    return c.day === dayName && Number(c.period) === periodNum;
+  });
+  if (prevCell?.locked) {
+    throw Error('Ô này đang khóa. Hãy mở khóa trước khi sửa.');
+  }
+
+  const nextSchedule = (state.draftSchedule || []).filter(c => {
+    if (c.classId !== classId) return true;
+    if (actualSlotId && c.timeSlotId) return c.timeSlotId !== actualSlotId;
+    return !(c.day === dayName && Number(c.period) === periodNum);
+  });
+
+  const nextCells = (state.timetableCells || []).filter(c => {
+    if (c.classId !== classId) return true;
+    if (actualSlotId && c.timeSlotId) return c.timeSlotId !== actualSlotId;
+    return true;
+  });
+
+  return {
+    ...state,
+    draftSchedule: nextSchedule,
+    timetableCells: nextCells
+  };
+}
+
 export function normalizeState(state) {
   if (!state || typeof state !== 'object') return state;
+
+  state.activeVersion = state.activeVersion || 'draft';
+
   if (Array.isArray(state.classes)) {
     for (const c of state.classes) {
       if (c.homeroomTeacherId === undefined) {
@@ -165,26 +393,95 @@ export function normalizeState(state) {
       }
     }
   }
+
   if (Array.isArray(state.teachers)) {
     for (const t of state.teachers) {
       if (!Array.isArray(t.assignments)) {
         t.assignments = [];
       }
+      // Sync name & fullName
+      if (!t.fullName && t.name) t.fullName = t.name;
+      if (!t.name && t.fullName) t.name = t.fullName;
     }
-    if (Array.isArray(state.timetableCells)) {
-      for (const cell of state.timetableCells) {
-        if (cell.teacherId && cell.classId && cell.subjectId) {
-          const t = state.teachers.find(tea => tea.id === cell.teacherId);
-          if (t) {
-            if (!Array.isArray(t.assignments)) t.assignments = [];
-            if (!t.assignments.some(a => a.classId === cell.classId && a.subjectId === cell.subjectId)) {
-              t.assignments.push({ classId: cell.classId, subjectId: cell.subjectId });
-            }
+  }
+
+  if (Array.isArray(state.timetableCells)) {
+    state.timetableCells = filterRemovedFixedCells(state.timetableCells);
+  }
+
+  // Initialize draftAssignments
+  if (!Array.isArray(state.draftAssignments)) {
+    state.draftAssignments = [];
+  }
+  // Backfill draftAssignments from teacher assignments if empty
+  if (state.draftAssignments.length === 0 && Array.isArray(state.teachers)) {
+    for (const t of state.teachers) {
+      for (const a of (t.assignments || [])) {
+        if (!state.draftAssignments.some(da => da.classId === a.classId && da.subjectId === a.subjectId)) {
+          state.draftAssignments.push({ classId: a.classId, subjectId: a.subjectId, teacherId: t.id });
+        }
+      }
+    }
+  }
+
+  // Ensure 2-way sync: teacher assignments match draftAssignments
+  if (Array.isArray(state.draftAssignments) && Array.isArray(state.teachers)) {
+    for (const da of state.draftAssignments) {
+      if (da.teacherId) {
+        const t = state.teachers.find(tea => tea.id === da.teacherId);
+        if (t) {
+          if (!t.assignments.some(a => a.classId === da.classId && a.subjectId === da.subjectId)) {
+            t.assignments.push({ classId: da.classId, subjectId: da.subjectId });
           }
         }
       }
     }
   }
+
+  // Initialize draftSchedule from timetableCells
+  if (!Array.isArray(state.draftSchedule)) {
+    state.draftSchedule = [];
+  }
+  if (state.draftSchedule.length === 0 && Array.isArray(state.timetableCells) && state.timetableCells.length > 0) {
+    state.draftSchedule = state.timetableCells.map(c => {
+      const slot = (state.timeSlots || []).find(s => s.id === c.timeSlotId);
+      return {
+        id: c.id || uid(),
+        day: c.day || slot?.dayName || `Thứ ${slot?.dayOfWeek || ''}`,
+        period: c.period || slot?.period || 1,
+        timeSlotId: c.timeSlotId,
+        classId: c.classId,
+        subjectId: c.subjectId,
+        teacherId: c.teacherId || '',
+        locked: !!c.locked,
+        note: c.note || ''
+      };
+    });
+  }
+
+  if (Array.isArray(state.draftSchedule)) {
+    state.draftSchedule = filterRemovedFixedCells(state.draftSchedule);
+  }
+
+  // Initialize publishedAssignments & publishedSchedule
+  if (!Array.isArray(state.publishedAssignments)) {
+    state.publishedAssignments = [];
+  }
+  if (!Array.isArray(state.publishedSchedule)) {
+    state.publishedSchedule = [];
+  }
+  if (state.lastPublishedAt === undefined) {
+    state.lastPublishedAt = null;
+  }
+
+  // If published exists from previous version, backfill publishedSchedule
+  if (state.published?.data?.timetableCells && state.publishedSchedule.length === 0) {
+    state.publishedSchedule = filterRemovedFixedCells(state.published.data.timetableCells);
+    if (!state.lastPublishedAt && state.published.publishedAt) {
+      state.lastPublishedAt = formatPublicationTime(state.published.publishedAt);
+    }
+  }
+
   return state;
 }
 

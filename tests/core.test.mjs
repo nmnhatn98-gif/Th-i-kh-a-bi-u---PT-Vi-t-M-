@@ -21,13 +21,15 @@ import {
   normalizeState,
   parseTeacherRows,
   importTeachersIntoState,
-  normalizeHeaderKey
+  normalizeHeaderKey,
+  isRemovedFixedCell,
+  filterRemovedFixedCells
 } from '../src/core.js';
 
-test('1. Khung gốc: 17 lớp, 45 tiết, 289 ô cố định, giờ bắt đầu/kết thúc đúng nguồn', () => {
+test('1. Khung gốc: 17 lớp, 45 tiết, 227 ô cố định (sau khi gỡ 62 ô TA ESL & CLB theo yêu cầu), giờ bắt đầu/kết thúc đúng nguồn', () => {
   assert.equal(SEED.classes.length, 17);
   assert.equal(SEED.timeSlots.length, 45);
-  assert.equal(SEED.timetableCells.length, 289);
+  assert.equal(SEED.timetableCells.length, 227);
   assert.equal(SEED.timeSlots[0].startTime, '07:45');
   assert.equal(SEED.timeSlots[0].endTime, '08:30');
   assert.doesNotThrow(() => validateState(SEED));
@@ -248,7 +250,7 @@ test('17. Xóa ô đã mở khóa thành công', () => {
   let state = clone(SEED);
   state.timetableCells[0].locked = false;
   state = deleteCell(state, state.timetableCells[0].classId, state.timetableCells[0].timeSlotId);
-  assert.equal(state.timetableCells.length, 288);
+  assert.equal(state.timetableCells.length, SEED.timetableCells.length - 1);
 });
 
 test('18. Phân quyền RBAC: OWNER (nmnhat.n98@gmail.com) được bảo vệ tuyệt đối, ADMIN không sửa được OWNER', () => {
@@ -608,6 +610,60 @@ test('30. Import giáo viên bảo toàn phân công môn/lớp và liên kết 
   assert.equal(updatedTea0.assignments.length, 1);
   assert.deepEqual(updatedTea0.assignments[0], { classId: 'cls_6a1', subjectId: 'subj_toan' });
   assert.equal(getAssignedTeacher(nextState, 'cls_6a1', 'subj_toan')?.id, tea0.id);
+});
+
+test('31. Xóa các tiết cố định TA ESL và CLB theo đúng yêu cầu người dùng', () => {
+  // 1. Kiểm tra 2 lớp 12XH và 12TN: Không còn tiết TA ESL vào chiều thứ 2, 4, 6 trong SEED
+  const taEslAfternoon12 = SEED.timetableCells.filter(c =>
+    (c.classId === 'cls_12xh' || c.classId === 'cls_12tn') &&
+    c.subjectId === 'subj_ta_esl' &&
+    /^ts_d[246]_a_[1-4]$/.test(c.timeSlotId)
+  );
+  assert.equal(taEslAfternoon12.length, 0, 'Đã xóa hoàn toàn TA ESL chiều T2, T4, T6 ở 12XH và 12TN');
+
+  // 2. Chiều thứ 3: các lớp 8A1, 8A2, 8A3, 9A1, 9A2, 9A3, 10TN, 10XH và 11 không còn tiết 3, 4 cố định CLB
+  const clbClassesT3 = ['cls_8a1', 'cls_8a2', 'cls_8a3', 'cls_9a1', 'cls_9a2', 'cls_9a3', 'cls_10tn', 'cls_10xh', 'cls_11'];
+  const clbT3Period34 = SEED.timetableCells.filter(c =>
+    clbClassesT3.includes(c.classId) &&
+    c.subjectId === 'subj_clb' &&
+    (c.timeSlotId === 'ts_d3_a_3' || c.timeSlotId === 'ts_d3_a_4')
+  );
+  assert.equal(clbT3Period34.length, 0, 'Đã xóa hoàn toàn CLB chiều T3 tiết 3, 4 ở các lớp 8A, 9A, 10, 11');
+
+  // 3. Chiều thứ 5: các lớp 6A1, 6A2, 6A3, 7A1, 7A2, 7A3 không còn tiết 3, 4 cố định CLB
+  const clbClassesT5 = ['cls_6a1', 'cls_6a2', 'cls_6a3', 'cls_7a1', 'cls_7a2', 'cls_7a3'];
+  const clbT5Period34 = SEED.timetableCells.filter(c =>
+    clbClassesT5.includes(c.classId) &&
+    c.subjectId === 'subj_clb' &&
+    (c.timeSlotId === 'ts_d5_a_3' || c.timeSlotId === 'ts_d5_a_4')
+  );
+  assert.equal(clbT5Period34.length, 0, 'Đã xóa hoàn toàn CLB chiều T5 tiết 3, 4 ở các lớp 6A, 7A');
+
+  // 4. Lớp 12TN và 12XH: Thứ 3 và Thứ 5 chiều tiết 3, 4 không có tiết CLB
+  const clb12Period34 = SEED.timetableCells.filter(c =>
+    (c.classId === 'cls_12tn' || c.classId === 'cls_12xh') &&
+    c.subjectId === 'subj_clb' &&
+    (c.timeSlotId === 'ts_d3_a_3' || c.timeSlotId === 'ts_d3_a_4' || c.timeSlotId === 'ts_d5_a_3' || c.timeSlotId === 'ts_d5_a_4')
+  );
+  assert.equal(clb12Period34.length, 0, 'Đã xóa hoàn toàn CLB ở 12TN và 12XH chiều T3 và T5 tiết 3, 4');
+
+  // 5. normalizeState tự động làm sạch nếu dữ liệu cũ có chứa các ô này
+  const dummyState = {
+    classes: SEED.classes,
+    subjects: SEED.subjects,
+    teachers: [],
+    timetableCells: [
+      { classId: 'cls_12xh', timeSlotId: 'ts_d2_a_1', subjectId: 'subj_ta_esl' },
+      { classId: 'cls_8a1', timeSlotId: 'ts_d3_a_3', subjectId: 'subj_clb' },
+      { classId: 'cls_6a1', timeSlotId: 'ts_d5_a_4', subjectId: 'subj_clb' },
+      { classId: 'cls_12tn', timeSlotId: 'ts_d3_a_3', subjectId: 'subj_clb' },
+      { classId: 'cls_12xh', timeSlotId: 'ts_d5_a_4', subjectId: 'subj_clb' },
+      { classId: 'cls_6a1', timeSlotId: 'ts_d2_m_1', subjectId: 'subj_special_chao_co' }
+    ]
+  };
+  const normalized = normalizeState(dummyState);
+  assert.equal(normalized.timetableCells.length, 1);
+  assert.equal(normalized.timetableCells[0].subjectId, 'subj_special_chao_co');
 });
 
 

@@ -20,7 +20,14 @@ import {
   normalizeState,
   parseTeacherRows,
   importTeachersIntoState,
-  TEACHER_TEMPLATE_ROWS
+  TEACHER_TEMPLATE_ROWS,
+  filterRemovedFixedCells,
+  isTeacherBusy,
+  formatPublicationTime,
+  publishDraft,
+  restoreDraftFromPublished,
+  assignLessonToScheduleCell,
+  removeLessonFromScheduleCell
 } from './core.js';
 import {
   auth,
@@ -51,6 +58,12 @@ let state = normalizeState(clone(SEED));
 let workingDraft = normalizeState(clone(SEED));
 let publishedTimetable = null;
 let currentRevision = 1;
+
+// Publishing Engine & Environment State
+let activeVersion = 'draft'; // 'draft' | 'published'
+let trayPosition = 'top'; // 'top' | 'right'
+let traySelectedClassId = '';
+let armedCard = null; // { classId: string, subjectId: string, teacherId: string } | null
 
 // Workspaces: 'ADMIN' | 'SCHEDULER' | 'HOMEROOM' | 'VISITING' | 'TEACHER'
 let currentWorkspace = 'ADMIN';
@@ -211,7 +224,7 @@ function determineDefaultWorkspace() {
 }
 
 function canEditWorking() {
-  return (currentWorkspace === 'ADMIN' || currentWorkspace === 'SCHEDULER') && !showPublished && isSchedulerRole();
+  return (currentWorkspace === 'ADMIN' || currentWorkspace === 'SCHEDULER') && activeVersion === 'draft' && !showPublished && isSchedulerRole();
 }
 
 // ----------------------------------------------------
@@ -225,23 +238,34 @@ async function syncWorkingToCloud(nextState) {
   setSync('saving', 'Đang lưu lên Cloud...');
   try {
     validateState(nextState);
+    const normalized = normalizeState(nextState);
     const revision = (currentRevision || 0) + 1;
     const payload = {
       revision,
-      school: nextState.school,
-      classes: nextState.classes,
-      subjects: nextState.subjects,
-      teachers: nextState.teachers,
-      timeSlots: nextState.timeSlots,
-      timetableCells: nextState.timetableCells,
-      versions: nextState.versions || [],
+      school: normalized.school,
+      classes: normalized.classes,
+      subjects: normalized.subjects,
+      teachers: normalized.teachers,
+      timeSlots: normalized.timeSlots,
+      timetableCells: normalized.timetableCells,
+      draftAssignments: normalized.draftAssignments || [],
+      draftSchedule: normalized.draftSchedule || [],
+      publishedAssignments: normalized.publishedAssignments || [],
+      publishedSchedule: normalized.publishedSchedule || [],
+      lastPublishedAt: normalized.lastPublishedAt || null,
+      activeVersion: normalized.activeVersion || activeVersion,
+      versions: normalized.versions || [],
       updatedAt: new Date().toISOString(),
       updatedBy: currentUser?.email || 'admin'
     };
     await setDoc(doc(db, 'timetables', 'working'), payload);
     currentRevision = revision;
-    state = nextState;
-    workingDraft = clone(nextState);
+    workingDraft = normalized;
+    if (activeVersion === 'draft') {
+      state = clone(normalized);
+    } else {
+      state = clone(displayed());
+    }
     setSync('idle', 'Đã lưu Cloud');
     return true;
   } catch (error) {
@@ -329,6 +353,9 @@ function initDataSubscriptions() {
     snap => {
       if (snap.exists() && snap.data()?.isPublished) {
         publishedTimetable = snap.data();
+        if (publishedTimetable?.data) {
+          publishedTimetable.data = normalizeState(publishedTimetable.data);
+        }
       } else {
         publishedTimetable = null;
       }
@@ -369,15 +396,24 @@ function initDataSubscriptions() {
         }
         const data = snap.data();
         currentRevision = data.revision || 1;
-        workingDraft = {
+        const rawCells = data.timetableCells || [];
+        const cleanedCells = filterRemovedFixedCells(rawCells);
+        const hadOldCells = cleanedCells.length !== rawCells.length;
+
+        workingDraft = normalizeState({
           school: data.school || SEED.school,
           classes: data.classes || [],
           subjects: data.subjects || [],
           teachers: data.teachers || [],
           timeSlots: data.timeSlots || SEED.timeSlots,
-          timetableCells: data.timetableCells || [],
+          timetableCells: cleanedCells,
           versions: data.versions || []
-        };
+        });
+
+        if (hadOldCells && canEditWorking()) {
+          syncWorkingToCloud(workingDraft).catch(console.error);
+        }
+
         if (!showPublished && (currentWorkspace === 'ADMIN' || currentWorkspace === 'SCHEDULER')) {
           state = clone(workingDraft);
         }
@@ -515,9 +551,28 @@ function handleAuthState() {
 // ----------------------------------------------------
 function displayed() {
   if (currentWorkspace !== 'ADMIN' && currentWorkspace !== 'SCHEDULER') {
-    return publishedTimetable?.data || { ...state, timetableCells: [] };
+    if (publishedTimetable?.data) return normalizeState(publishedTimetable.data);
+    const pState = clone(workingDraft);
+    pState.timetableCells = (workingDraft.publishedSchedule && workingDraft.publishedSchedule.length > 0)
+      ? workingDraft.publishedSchedule
+      : [];
+    pState.draftAssignments = (workingDraft.publishedAssignments && workingDraft.publishedAssignments.length > 0)
+      ? workingDraft.publishedAssignments
+      : [];
+    return pState;
   }
-  return showPublished ? (publishedTimetable?.data || { ...state, timetableCells: [] }) : state;
+  if (activeVersion === 'published' || showPublished) {
+    if (publishedTimetable?.data) return normalizeState(publishedTimetable.data);
+    const pState = clone(workingDraft);
+    pState.timetableCells = (workingDraft.publishedSchedule && workingDraft.publishedSchedule.length > 0)
+      ? workingDraft.publishedSchedule
+      : [];
+    pState.draftAssignments = (workingDraft.publishedAssignments && workingDraft.publishedAssignments.length > 0)
+      ? workingDraft.publishedAssignments
+      : [];
+    return pState;
+  }
+  return workingDraft;
 }
 
 function getTeacherLessons(teacherId, sourceData = displayed()) {
@@ -1527,7 +1582,7 @@ function renderMatrixSection(s) {
         ${classes
           .map(
             cls => `
-          <th class="class-header">
+          <th class="class-header" data-select-tray-class="${esc(cls.id)}" style="cursor:pointer;" title="Nhấp để xem các môn phân công của lớp ${esc(cls.name)} trong Khay thẻ">
             <strong>${esc(cls.name)}</strong>
             <span>${cls.grade < 10 ? 'THCS' : 'THPT'} · Khối ${cls.grade}</span>
             <div>
@@ -1558,8 +1613,19 @@ function renderMatrixSection(s) {
           const isDimmed = hasTarget && (!cell || cell.teacherId !== targetHighlightId);
           const matchQuery = !query || `${subject?.name || ''} ${teacherText} ${cls.name}`.toLocaleLowerCase('vi').includes(query.toLocaleLowerCase('vi'));
 
-          rows += `<td class="lesson ${cell ? 'filled' : 'empty'} ${isHighlighted ? 'cell-highlighted' : ''} ${isDimmed || !matchQuery ? 'cell-dimmed' : ''} ${cell && conflictIds.has(cell.id) ? 'conflict' : ''}" style="${subject ? '--subject:' + esc(subject.color) + ';' : ''}">
-            <button data-cell-class="${esc(cls.id)}" data-cell-slot="${esc(slot.id)}" aria-label="${esc(`${cls.name}, thứ ${day}, ${slot.session === 'MORNING' ? 'sáng' : 'chiều'} tiết ${slot.period}${subject ? ', ' + subject.name : ''}`)}" ${isReadonly ? 'disabled' : ''}>
+          rows += `<td class="lesson ${cell ? 'filled' : 'empty'} ${isHighlighted ? 'cell-highlighted' : ''} ${isDimmed || !matchQuery ? 'cell-dimmed' : ''} ${cell && conflictIds.has(cell.id) ? 'conflict' : ''}"
+                       data-cell-drop="true"
+                       data-cell-class="${esc(cls.id)}"
+                       data-cell-slot="${esc(slot.id)}"
+                       data-cell-day="${day}"
+                       data-cell-period="${slot.period}"
+                       style="${subject ? '--subject:' + esc(subject.color) + ';' : ''}">
+            <button data-cell-class="${esc(cls.id)}"
+                    data-cell-slot="${esc(slot.id)}"
+                    data-cell-day="${day}"
+                    data-cell-period="${slot.period}"
+                    aria-label="${esc(`${cls.name}, thứ ${day}, ${slot.session === 'MORNING' ? 'sáng' : 'chiều'} tiết ${slot.period}${subject ? ', ' + subject.name : ''}`)}"
+                    ${isReadonly ? 'disabled' : ''}>
               ${cell ? `<span class="subject-name">${esc(subject?.name)} ${cell.locked ? '<span class="lock" title="Đã khóa">▣</span>' : ''}</span><span class="teacher-name">${cell.teacherId ? esc(teacherText) : 'Chưa chọn giáo viên'}</span>${cell.note ? `<span class="cell-note" title="${esc(cell.note)}">${esc(cell.note)}</span>` : ''}` : '<span class="empty-mark">＋</span>'}
             </button>
           </td>`;
@@ -1570,29 +1636,47 @@ function renderMatrixSection(s) {
     tableBodyHtml = rows;
   }
 
+  const trayHtml = matrixViewMode === 'timetable' ? renderAssignmentTray(s, classes) : '';
+
   return `
     <section class="matrix-panel ${brushMode !== 'none' ? 'brush-active' : ''}">
       <div class="panel-toolbar">
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <div class="segmented">
             <button data-set-matrix-mode="assignment" class="${matrixViewMode === 'assignment' ? 'selected' : ''}">📋 Ma trận phân công (Môn - Lớp)</button>
             <button data-set-matrix-mode="timetable" class="${matrixViewMode === 'timetable' ? 'selected' : ''}">▦ Lịch tiết học (Tiết - Lớp)</button>
           </div>
-          <div class="segmented">
-            ${
-              canEditWorking()
-                ? `
-              <button data-action="draft" class="${!showPublished ? 'selected' : ''}">Bản đang xếp</button>
-              <button data-action="published" class="${showPublished ? 'selected' : ''}" ${!publishedTimetable?.isPublished ? 'disabled' : ''}>
-                Bản đã chốt ${publishedTimetable?.isPublished ? '✓' : ''}
+
+          <!-- 2 Môi trường (Draft vs Published) Engine -->
+          <div class="publish-engine-bar">
+            <div class="publish-toggle-group">
+              <button type="button" data-action="set-version-draft" class="publish-toggle-btn ${activeVersion === 'draft' ? 'selected' : ''}" title="Chuyển sang bản nháp đang xếp">
+                📝 Bản đang xếp
               </button>
-            `
-                : `
-              <button class="selected" disabled>Bản công bố chính thức ✓</button>
-            `
-            }
+              <button type="button" data-action="set-version-published" class="publish-toggle-btn ${activeVersion === 'published' ? 'selected' : ''}" title="Xem bản công bố chính thức">
+                ✓ Bản đã chốt
+              </button>
+            </div>
+
+            ${isSchedulerRole() ? `
+              <div class="publish-actions">
+                <button type="button" data-action="publish-all" class="btn-publish-all" title="Sao chép toàn bộ bản nháp sang bản chính thức và công bố cho toàn trường">
+                  🚀 Công bố lên toàn trường
+                </button>
+                <button type="button" data-action="restore-published-all" class="btn-restore-published" title="Hủy các thay đổi nháp và khôi phục quay lại giống bản đã chốt">
+                  ↺ Khôi phục bản chốt
+                </button>
+              </div>
+            ` : ''}
+
+            ${(workingDraft.lastPublishedAt || publishedTimetable?.lastPublishedAt) ? `
+              <span class="publish-time-badge" title="Thời điểm công bố gần nhất">
+                🕒 Đã chốt: ${esc(workingDraft.lastPublishedAt || publishedTimetable?.lastPublishedAt)}
+              </span>
+            ` : ''}
           </div>
         </div>
+
         <div class="toolbar-right">
           <label class="sr-only" for="teacher-filter">Lọc giáo viên</label>
           <select id="teacher-filter">${selectOptions(s.teachers || [], teacher, 'fullName', 'Tất cả giáo viên')}</select>
@@ -1602,8 +1686,8 @@ function renderMatrixSection(s) {
         </div>
       </div>
 
-      <!-- Thanh công cụ Cọ gán nhanh (Quick Stamp / Brush Tool) -->
-      ${canEditWorking() ? `
+      <!-- Thanh công cụ Cọ gán nhanh (Quick Stamp / Brush Tool cho Ma trận phân công) -->
+      ${canEditWorking() && matrixViewMode === 'assignment' ? `
         <div class="brush-toolbar">
           <span class="brush-title">🖌️ Cọ gán nhanh:</span>
           <select id="brush-teacher-select" class="brush-select">
@@ -1630,32 +1714,62 @@ function renderMatrixSection(s) {
       <div class="matrix-caption">
         <div>
           <span class="live-pill ${isReadonly ? 'published' : ''}">${isReadonly ? '✓ ĐÃ CHỐT' : '● BẢN ĐANG XẾP'}</span>
-          <h2>${matrixViewMode === 'assignment' ? 'MA TRẬN PHÂN CÔNG CHUYÊN MÔN (MÔN — LỚP)' : 'THỜI KHÓA BIỂU TOÀN TRƯỜNG'}</h2>
+          <h2>${matrixViewMode === 'assignment' ? 'MA TRẬN PHÂN CÔNG CHUYÊN MÔN (MÔN — LỚP)' : 'THỜI KHÓA BIỂU TOÀN TRƯỜNG (TIẾT — LỚP)'}</h2>
           <p>${esc(s.school?.name || '')} · ${esc(s.school?.year || '')} · ${esc(s.school?.term || '')}${s.school?.appliedDate ? ' · Áp dụng ' + esc(s.school.appliedDate) : ''}</p>
         </div>
         <p class="matrix-help">${
-          brushMode === 'brush'
-            ? `🖌️ Chế độ Cọ vẽ: Click bất kỳ ô nào để gán ngay cho ${esc(targetTeacherName)}.`
-            : brushMode === 'eraser'
-            ? '🧼 Chế độ Tẩy: Click bất kỳ ô nào để xóa phân công ngay lập tức.'
-            : targetTeacherId
-            ? `Đang rọi sáng phân công của: ${esc(targetTeacherName)}`
-            : isReadonly
-            ? 'Chế độ xem chỉ đọc bản lịch đã chốt.'
-            : 'Nhấp một ô để mở danh sách chọn giáo viên (Popover Click) hoặc dùng Cọ vẽ để gán nhanh.'
+          matrixViewMode === 'timetable'
+            ? (armedCard
+                ? `🎯 Đang cầm cọ thẻ: ${esc(text(s.subjects || [], armedCard.subjectId))} - ${esc(text(s.teachers || [], armedCard.teacherId, 'fullName'))}. Click vào các ô trống trên bảng để gán nhanh.`
+                : isReadonly
+                ? 'Chế độ xem chỉ đọc bản lịch đã chốt.'
+                : 'Nhấp một ô để mở Popover gợi ý chỉ giáo viên lớp này, hoặc Kéo-Thả / Click cọ thẻ từ Khay phân công.')
+            : (brushMode === 'brush'
+                ? `🖌️ Chế độ Cọ vẽ: Click bất kỳ ô nào để gán ngay cho ${esc(targetTeacherName)}.`
+                : brushMode === 'eraser'
+                ? '🧼 Chế độ Tẩy: Click bất kỳ ô nào để xóa phân công ngay lập tức.'
+                : targetTeacherId
+                ? `Đang rọi sáng phân công của: ${esc(targetTeacherName)}`
+                : isReadonly
+                ? 'Chế độ xem chỉ đọc bản lịch đã chốt.'
+                : 'Nhấp một ô để mở danh sách chọn giáo viên (Popover Click) hoặc dùng Cọ vẽ để gán nhanh.')
         }</p>
       </div>
 
-      <div class="matrix-scroll" id="matrix-scroll-container" tabindex="0" role="region" aria-label="Ma trận thời khóa biểu">
-        <table class="matrix ${compact ? 'compact' : ''}">
-          <thead>${tableHeaderHtml}</thead>
-          <tbody>${tableBodyHtml}</tbody>
-        </table>
-      </div>
+      ${
+        matrixViewMode === 'timetable' && trayPosition === 'top'
+          ? trayHtml
+          : ''
+      }
+
+      ${
+        matrixViewMode === 'timetable' && trayPosition === 'right'
+          ? `
+            <div class="timetable-with-tray-container layout-right">
+              <div class="matrix-scroll" id="matrix-scroll-container" tabindex="0" role="region" aria-label="Ma trận thời khóa biểu">
+                <table class="matrix ${compact ? 'compact' : ''}">
+                  <thead>${tableHeaderHtml}</thead>
+                  <tbody>${tableBodyHtml}</tbody>
+                </table>
+              </div>
+              <aside class="timetable-tray-sidebar">
+                ${trayHtml}
+              </aside>
+            </div>
+          `
+          : `
+            <div class="matrix-scroll" id="matrix-scroll-container" tabindex="0" role="region" aria-label="Ma trận thời khóa biểu">
+              <table class="matrix ${compact ? 'compact' : ''}">
+                <thead>${tableHeaderHtml}</thead>
+                <tbody>${tableBodyHtml}</tbody>
+              </table>
+            </div>
+          `
+      }
 
       <div class="matrix-bottom">
         <span><i></i> ${matrixViewMode === 'assignment' ? 'Ma trận gán trực tiếp giáo viên dạy theo môn & lớp' : 'Môn học & giáo viên trong từng tiết học'}</span>
-        <span>${isReadonly ? 'Chế độ xem chỉ đọc' : 'Đồng bộ Cloud tự động'} · 2 chế độ: Popover chọn nhanh & Cọ vẽ liên tiếp</span>
+        <span>${isReadonly ? 'Chế độ xem chỉ đọc bản đã chốt' : 'Đồng bộ Cloud tự động'} · Cơ chế gợi ý cục bộ không tràn lan (Popover & Khay thẻ)</span>
       </div>
     </section>
 
@@ -1663,6 +1777,7 @@ function renderMatrixSection(s) {
     <div id="brush-cursor-indicator" class="brush-cursor-indicator" style="display:none;"></div>
   `;
 }
+
 
 // ----------------------------------------------------
 // Preserved Catalog (Với GVCN cho Lớp & Phân công cho GV)
@@ -2178,6 +2293,199 @@ function openDialog(html) {
 }
 const closeButton = '<button type="button" data-action="close" class="icon-button" aria-label="Đóng">×</button>';
 
+// ----------------------------------------------------
+// Assignment Tray & Localized Suggestion Engine
+// ----------------------------------------------------
+function renderAssignmentTray(s, classes) {
+  if (matrixViewMode !== 'timetable') return '';
+  const isReadonly = !canEditWorking();
+  if (isReadonly) return '';
+
+  if (!traySelectedClassId || !classes.some(c => c.id === traySelectedClassId)) {
+    traySelectedClassId = classes[0]?.id || '';
+  }
+  const currentClass = (s.classes || []).find(c => c.id === traySelectedClassId);
+  const classAssignments = (workingDraft.draftAssignments || []).filter(a => a.classId === traySelectedClassId);
+
+  return `
+    <div class="assignment-tray-wrapper ${trayPosition === 'right' ? 'tray-right-dock' : 'tray-top-dock'}">
+      <div class="assignment-tray-bar">
+        <div class="tray-header-left">
+          <span class="tray-title-badge">📌 Khay thẻ phân công</span>
+          <div class="tray-class-picker">
+            <span class="tray-picker-label">Lớp:</span>
+            <select id="tray-class-select" data-action="tray-select-class" class="tray-select" aria-label="Chọn lớp trong khay thẻ">
+              ${classes.map(c => `<option value="${esc(c.id)}" ${c.id === traySelectedClassId ? 'selected' : ''}>${esc(c.name)} (${c.grade < 10 ? 'THCS' : 'THPT'} - K${c.grade})</option>`).join('')}
+            </select>
+          </div>
+          <span class="tray-class-count">${classAssignments.length} môn đã phân công</span>
+        </div>
+
+        <div class="tray-header-right">
+          <div class="tray-pos-toggle">
+            <button type="button" data-action="set-tray-top" class="tray-pos-btn ${trayPosition === 'top' ? 'active' : ''}" title="Đặt khay phía trên bảng">⬒ Trên bảng</button>
+            <button type="button" data-action="set-tray-right" class="tray-pos-btn ${trayPosition === 'right' ? 'active' : ''}" title="Đặt khay cột bên phải">◧ Cột bên phải</button>
+          </div>
+          ${armedCard ? `
+            <div class="armed-indicator">
+              <span>🎯 Đang cọ: <strong>${esc(text(s.subjects || [], armedCard.subjectId))}</strong> (${esc(text(s.teachers || [], armedCard.teacherId, 'fullName'))})</span>
+              <button type="button" data-action="disarm-card" class="disarm-btn" title="Hủy kích hoạt cọ">✕ Hủy chọn</button>
+            </div>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="tray-cards-container">
+        ${classAssignments.length ? classAssignments.map(a => {
+          const subj = (s.subjects || []).find(x => x.id === a.subjectId);
+          const tea = (s.teachers || []).find(x => x.id === a.teacherId);
+          const isArmed = armedCard && armedCard.classId === a.classId && armedCard.subjectId === a.subjectId && armedCard.teacherId === a.teacherId;
+          const assignedSlotsCount = (workingDraft.draftSchedule || []).filter(c => c.classId === a.classId && c.subjectId === a.subjectId).length;
+
+          return `
+            <div class="assignment-card ${isArmed ? 'armed' : ''}"
+                 draggable="true"
+                 data-tray-card="true"
+                 data-class="${esc(a.classId)}"
+                 data-subject="${esc(a.subjectId)}"
+                 data-teacher="${esc(a.teacherId)}"
+                 data-action="toggle-arm-card"
+                 style="--subject-color: ${esc(subj?.color || '#3b82f6')};"
+                 title="Click để kích hoạt cọ gán liên tiếp hoặc Kéo thả vào ô lịch">
+              <div class="card-color-stripe" style="background-color: ${esc(subj?.color || '#3b82f6')};"></div>
+              <div class="card-body">
+                <div class="card-subject-row">
+                  <strong class="card-subject-name">${esc(subj?.name || 'Môn học')}</strong>
+                  <span class="card-subject-code">${esc(subj?.code || '')}</span>
+                </div>
+                <div class="card-teacher-row">
+                  <span class="card-teacher-name">👨‍🏫 ${esc(tea?.fullName || 'Chưa gán GV')}</span>
+                  <span class="card-count-badge" title="Số tiết đã xếp">${assignedSlotsCount} tiết</span>
+                </div>
+                ${isArmed ? `<div class="card-armed-tag">✓ Đang chọn cọ (Click ô để gán)</div>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('') : `
+          <div class="tray-empty-hint">
+            <span>ℹ️ Lớp <strong>${esc(currentClass?.name || '')}</strong> chưa có môn nào được phân công. Hãy sang tab <strong>📋 Ma trận phân công (Môn - Lớp)</strong> để gán giáo viên.</span>
+          </div>
+        `}
+      </div>
+    </div>
+  `;
+}
+
+function openTimetableCellPopover({ classId, timeSlotId, day, period, anchorElement }) {
+  closePopover();
+  if (!canEditWorking()) return;
+
+  const cls = (workingDraft.classes || []).find(c => c.id === classId);
+  const slot = (workingDraft.timeSlots || []).find(s => s.id === timeSlotId);
+  const dayLabel = `Thứ ${day}`;
+  const currentCell = (workingDraft.draftSchedule || []).find(
+    c => c.classId === classId && (c.timeSlotId === timeSlotId || (c.day === dayLabel && c.period === period))
+  );
+
+  // Suggestion list: ONLY filter { subject, teacher } pairs from draftAssignments with classId === classId
+  const classAssignments = (workingDraft.draftAssignments || []).filter(a => a.classId === classId);
+
+  const rect = anchorElement.getBoundingClientRect();
+  const popoverWidth = 320;
+  let left = rect.left;
+  if (left + popoverWidth > window.innerWidth - 12) {
+    left = window.innerWidth - popoverWidth - 12;
+  }
+  if (left < 10) left = 10;
+
+  let top = rect.bottom + 6;
+  if (top + 380 > window.innerHeight) {
+    top = Math.max(10, rect.top - 370);
+  }
+
+  const sessionText = (slot?.session === 'MORNING' || period <= 5) ? 'Sáng' : 'Chiều';
+  const periodText = slot?.period || (period > 5 ? period - 5 : period);
+
+  const container = document.createElement('div');
+  container.id = 'active-matrix-popover-root';
+  container.innerHTML = `
+    <div class="matrix-popover-overlay" data-action="close-popover"></div>
+    <div class="matrix-popover timetable-popover" style="top:${top}px;left:${left}px;width:${popoverWidth}px;">
+      <div class="popover-header">
+        <div>
+          <div style="font-size:12px;color:#184239;font-weight:700;">Lớp ${esc(cls?.name || '')}</div>
+          <div style="font-size:10px;color:#60766b;">${dayLabel} · ${sessionText} Tiết ${periodText} (${esc(slot?.startTime || '')} - ${esc(slot?.endTime || '')})</div>
+        </div>
+        <button type="button" class="popover-close-btn" data-action="close-popover" title="Đóng">✕</button>
+      </div>
+
+      <div class="popover-section-label">
+        <span>GỢI Ý TỪ PHÂN CÔNG LỚP (${classAssignments.length} môn)</span>
+      </div>
+
+      <div class="popover-suggestions-list">
+        ${classAssignments.length ? classAssignments.map(a => {
+          const subj = (workingDraft.subjects || []).find(x => x.id === a.subjectId);
+          const tea = (workingDraft.teachers || []).find(x => x.id === a.teacherId);
+          const busyInfo = isTeacherBusy(a.teacherId, dayLabel, period, classId, workingDraft.draftSchedule, slot?.id);
+          const isCurrent = currentCell && currentCell.subjectId === a.subjectId && currentCell.teacherId === a.teacherId;
+
+          if (busyInfo.isBusy) {
+            return `
+              <div class="popover-suggestion-item busy" title="${esc(tea?.fullName || 'GV')} bận tại ${esc(busyInfo.conflictingClass?.name || 'lớp khác')}">
+                <i class="item-color-dot" style="background:${esc(subj?.color || '#94a3b8')};"></i>
+                <div class="item-info">
+                  <strong>${esc(subj?.name || 'Môn học')}</strong>
+                  <span class="teacher-busy-label">⛔ ${esc(tea?.fullName || 'GV')} bận tại ${esc(busyInfo.conflictingClass?.name || 'lớp khác')}</span>
+                </div>
+              </div>
+            `;
+          }
+
+          return `
+            <button type="button" class="popover-suggestion-item free ${isCurrent ? 'selected' : ''}"
+                    data-action="assign-popover-suggestion"
+                    data-class="${esc(classId)}"
+                    data-slot="${esc(timeSlotId)}"
+                    data-day="${day}"
+                    data-period="${period}"
+                    data-subject="${esc(a.subjectId)}"
+                    data-teacher="${esc(a.teacherId)}">
+              <i class="item-color-dot" style="background:${esc(subj?.color || '#3b82f6')};"></i>
+              <div class="item-info">
+                <strong>${esc(subj?.name || 'Môn học')}</strong>
+                <span class="teacher-free-label">👨‍🏫 ${esc(tea?.fullName || 'Chưa gán GV')} · Rảnh</span>
+              </div>
+              ${isCurrent ? '<span class="item-current-badge">✓ Đang gán</span>' : '<span class="item-assign-action">Gán</span>'}
+            </button>
+          `;
+        }).join('') : `
+          <div style="padding:14px;text-align:center;color:#6b7280;font-size:11px;">
+            Lớp <strong>${esc(cls?.name || '')}</strong> chưa có môn nào trong Ma trận phân công.
+            <div style="margin-top:8px;">
+              <button type="button" class="popover-goto-matrix-btn" data-set-matrix-mode="assignment">Chuyển sang Ma trận phân công</button>
+            </div>
+          </div>
+        `}
+      </div>
+
+      ${currentCell ? `
+        <div class="popover-footer">
+          <button type="button" class="popover-clear-slot-btn"
+                  data-action="popover-clear-slot"
+                  data-class="${esc(classId)}"
+                  data-slot="${esc(timeSlotId)}"
+                  data-day="${day}"
+                  data-period="${period}">
+            ✕ Xóa tiết này
+          </button>
+        </div>
+      ` : ''}
+    </div>
+  `;
+  document.body.appendChild(container);
+}
+
 function openAssignmentPopover({ classId, subjectId, anchorElement }) {
   closePopover();
   const cls = (workingDraft.classes || []).find(c => c.id === classId);
@@ -2691,15 +2999,192 @@ const actions = {
     }
   },
   draft: () => {
+    activeVersion = 'draft';
     showPublished = false;
     state = clone(workingDraft);
     render();
   },
   published: () => {
+    activeVersion = 'published';
     showPublished = true;
     teacher = '';
-    if (publishedTimetable?.data) state = clone(publishedTimetable.data);
+    state = clone(displayed());
     render();
+  },
+  'set-version-draft': () => {
+    activeVersion = 'draft';
+    showPublished = false;
+    state = clone(workingDraft);
+    render();
+  },
+  'set-version-published': () => {
+    activeVersion = 'published';
+    showPublished = true;
+    teacher = '';
+    state = clone(displayed());
+    render();
+  },
+  'publish-all': async () => {
+    if (!canEditWorking()) {
+      toast('Bạn không có quyền công bố thời khóa biểu.');
+      return;
+    }
+    const conflicts = findConflicts(workingDraft);
+    if (conflicts.length) {
+      toast(`Còn ${conflicts.length} tiết trùng lịch giáo viên! Vui lòng xử lý trước khi công bố.`);
+      return;
+    }
+    if (!confirm('Công bố toàn bộ thời khóa biểu lên toàn trường? Học sinh và giáo viên sẽ xem được bản chốt này.')) {
+      return;
+    }
+    setSync('saving', 'Đang công bố lên toàn trường...');
+    try {
+      const next = publishDraft(workingDraft);
+      const timeStr = next.lastPublishedAt;
+      const payloadPublished = {
+        isPublished: true,
+        name: `Bản chốt ${timeStr}`,
+        publishedAt: new Date().toISOString(),
+        publishedBy: currentUser?.email || 'admin',
+        lastPublishedAt: timeStr,
+        data: clone(next)
+      };
+      await setDoc(doc(db, 'timetables', 'published'), payloadPublished);
+      publishedTimetable = payloadPublished;
+      if (await syncWorkingToCloud(next)) {
+        activeVersion = 'published';
+        showPublished = true;
+        render();
+        toast('Đã công bố thời khóa biểu lên toàn trường thành công!');
+      }
+    } catch (err) {
+      toast('Lỗi khi công bố: ' + err.message);
+      setSync('error', 'Lỗi công bố');
+    }
+  },
+  'restore-published-all': async () => {
+    if (!canEditWorking()) {
+      toast('Bạn không có quyền khôi phục bản chốt.');
+      return;
+    }
+    const hasPublished = (workingDraft.publishedSchedule && workingDraft.publishedSchedule.length > 0) ||
+                         (publishedTimetable?.data?.publishedSchedule && publishedTimetable.data.publishedSchedule.length > 0) ||
+                         (publishedTimetable?.data?.timetableCells && publishedTimetable.data.timetableCells.length > 0);
+    if (!hasPublished) {
+      toast('Chưa có bản đã chốt nào để khôi phục.');
+      return;
+    }
+    if (!confirm('Khôi phục bản đang xếp quay về giống bản đã chốt gần nhất? Mọi thay đổi nháp chưa công bố sẽ bị hủy.')) {
+      return;
+    }
+    setSync('saving', 'Đang khôi phục bản chốt...');
+    try {
+      const source = (workingDraft.publishedSchedule && workingDraft.publishedSchedule.length > 0)
+        ? workingDraft
+        : (publishedTimetable?.data ? normalizeState(publishedTimetable.data) : workingDraft);
+      const next = restoreDraftFromPublished(source);
+      if (await syncWorkingToCloud(next)) {
+        activeVersion = 'draft';
+        showPublished = false;
+        render();
+        toast('Đã khôi phục bản đang xếp từ bản đã chốt.');
+      }
+    } catch (err) {
+      toast('Lỗi khôi phục: ' + err.message);
+      setSync('error', 'Lỗi khôi phục');
+    }
+  },
+  'set-tray-top': () => {
+    trayPosition = 'top';
+    render();
+  },
+  'set-tray-right': () => {
+    trayPosition = 'right';
+    render();
+  },
+  'disarm-card': () => {
+    armedCard = null;
+    render();
+    toast('Đã hủy chọn cọ thẻ.');
+  },
+  'toggle-arm-card': element => {
+    const card = element.dataset?.trayCard ? element : element.closest('[data-tray-card]');
+    if (!card) return;
+    const classId = card.dataset.class;
+    const subjectId = card.dataset.subject;
+    const teacherId = card.dataset.teacher;
+    if (armedCard && armedCard.classId === classId && armedCard.subjectId === subjectId && armedCard.teacherId === teacherId) {
+      armedCard = null;
+      toast('Đã tắt chế độ cọ thẻ.');
+    } else {
+      armedCard = { classId, subjectId, teacherId };
+      const subjName = text(workingDraft.subjects, subjectId);
+      const teaName = text(workingDraft.teachers, teacherId, 'fullName');
+      toast(`Đã kích hoạt cọ: ${subjName} - ${teaName}. Nhấp vào các ô trống trên bảng để gán nhanh!`);
+    }
+    render();
+  },
+  'assign-popover-suggestion': async element => {
+    const classId = element.dataset.class;
+    const timeSlotId = element.dataset.slot;
+    const day = Number(element.dataset.day);
+    const period = Number(element.dataset.period);
+    const subjectId = element.dataset.subject;
+    const teacherId = element.dataset.teacher;
+    closePopover();
+
+    if (!canEditWorking()) return;
+    const dayLabel = `Thứ ${day}`;
+
+    // Conflict check
+    const busyInfo = isTeacherBusy(teacherId, dayLabel, period, classId, workingDraft.draftSchedule, timeSlotId);
+    if (busyInfo.isBusy) {
+      const teaName = text(workingDraft.teachers, teacherId, 'fullName');
+      const confName = busyInfo.conflictingClass?.name || 'lớp khác';
+      toast(`GV ${teaName} đã có lịch dạy ở ${confName} vào tiết này!`);
+      return;
+    }
+
+    try {
+      const next = assignLessonToScheduleCell(workingDraft, {
+        classId,
+        day: dayLabel,
+        period,
+        timeSlotId,
+        subjectId,
+        teacherId
+      });
+      if (await syncWorkingToCloud(next)) {
+        render();
+        toast('Đã xếp tiết học thành công.');
+      }
+    } catch (err) {
+      toast('Lỗi khi xếp tiết: ' + err.message);
+    }
+  },
+  'popover-clear-slot': async element => {
+    const classId = element.dataset.class;
+    const timeSlotId = element.dataset.slot;
+    const day = Number(element.dataset.day);
+    const period = Number(element.dataset.period);
+    closePopover();
+
+    if (!canEditWorking()) return;
+    const dayLabel = `Thứ ${day}`;
+    try {
+      const next = removeLessonFromScheduleCell(workingDraft, {
+        classId,
+        day: dayLabel,
+        period,
+        timeSlotId
+      });
+      if (await syncWorkingToCloud(next)) {
+        render();
+        toast('Đã xóa tiết học khỏi ô lịch.');
+      }
+    } catch (err) {
+      toast('Lỗi khi xóa ô: ' + err.message);
+    }
   },
   'go-matrix': () => {
     view = 'matrix';
@@ -3073,11 +3558,65 @@ document.addEventListener('click', async event => {
     }
   }
 
-  if (element.dataset.cellClass) {
-    // If in timetable mode and brush is active, also stamp directly!
+  if (element.dataset.selectTrayClass || element.closest('[data-select-tray-class]')) {
+    const el = element.dataset.selectTrayClass ? element : element.closest('[data-select-tray-class]');
+    traySelectedClassId = el.dataset.selectTrayClass;
+    render();
+    return;
+  }
+
+  if (element.dataset.cellClass || element.closest('[data-cell-class]')) {
+    const cellBtn = element.dataset.cellClass ? element : element.closest('[data-cell-class]');
+    const classId = cellBtn.dataset.cellClass;
+    const timeSlotId = cellBtn.dataset.cellSlot;
+    const day = Number(cellBtn.dataset.cellDay);
+    const period = Number(cellBtn.dataset.cellPeriod);
+    const dayLabel = `Thứ ${day}`;
+
+    if (matrixViewMode === 'timetable') {
+      if (!canEditWorking()) {
+        return;
+      }
+
+      // 1. Armed Card Mode: Click to assign directly without reopening popover
+      if (armedCard) {
+        // Teacher conflict check
+        const busyInfo = isTeacherBusy(armedCard.teacherId, dayLabel, period, classId, workingDraft.draftSchedule, timeSlotId);
+        if (busyInfo.isBusy) {
+          const teaName = text(workingDraft.teachers, armedCard.teacherId, 'fullName');
+          const confName = busyInfo.conflictingClass?.name || 'lớp khác';
+          toast(`GV ${teaName} đã có lịch dạy ở ${confName} vào tiết này!`);
+          return;
+        }
+
+        const next = assignLessonToScheduleCell(workingDraft, {
+          classId,
+          day: dayLabel,
+          period,
+          timeSlotId,
+          subjectId: armedCard.subjectId,
+          teacherId: armedCard.teacherId
+        });
+        if (await syncWorkingToCloud(next)) {
+          render();
+          toast(`Đã gán ${text(workingDraft.subjects, armedCard.subjectId)} (${text(workingDraft.teachers, armedCard.teacherId, 'fullName')}) vào lớp ${text(workingDraft.classes, classId)}.`);
+        }
+        return;
+      }
+
+      // 2. Default Mode: Popover gợi ý tại chỗ (Cơ chế 1)
+      openTimetableCellPopover({
+        classId,
+        timeSlotId,
+        day,
+        period,
+        anchorElement: cellBtn
+      });
+      return;
+    }
+
+    // Assignment Mode Quick Brush & Eraser
     if (canEditWorking() && brushMode === 'brush' && brushTeacherId) {
-      const classId = element.dataset.cellClass;
-      const timeSlotId = element.dataset.cellSlot;
       const cell = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
       if (cell && !cell.locked) {
         const next = putCell(workingDraft, { ...cell, teacherId: brushTeacherId }, { allowConflict: true });
@@ -3085,8 +3624,6 @@ document.addEventListener('click', async event => {
         return;
       }
     } else if (canEditWorking() && brushMode === 'eraser') {
-      const classId = element.dataset.cellClass;
-      const timeSlotId = element.dataset.cellSlot;
       const cell = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
       if (cell && !cell.locked) {
         const next = putCell(workingDraft, { ...cell, teacherId: '' }, { allowConflict: true });
@@ -3094,7 +3631,7 @@ document.addEventListener('click', async event => {
         return;
       }
     }
-    cellEditor(element.dataset.cellClass, element.dataset.cellSlot);
+    cellEditor(classId, timeSlotId);
     return;
   }
   if (element.dataset.add) {
@@ -3492,6 +4029,104 @@ document.addEventListener('submit', async event => {
   }
 });
 
+// ----------------------------------------------------
+// Assignment Tray & Drag-and-Drop Event Listeners
+// ----------------------------------------------------
+document.addEventListener('change', event => {
+  if (event.target.id === 'tray-class-select') {
+    traySelectedClassId = event.target.value;
+    render();
+  }
+});
+
+document.addEventListener('dragstart', event => {
+  const card = event.target.closest('[data-tray-card]');
+  if (!card) return;
+  const payload = {
+    classId: card.dataset.class,
+    subjectId: card.dataset.subject,
+    teacherId: card.dataset.teacher
+  };
+  event.dataTransfer.setData('application/json', JSON.stringify(payload));
+  event.dataTransfer.setData('text/plain', JSON.stringify(payload));
+  card.classList.add('dragging');
+});
+
+document.addEventListener('dragend', event => {
+  const card = event.target.closest('[data-tray-card]');
+  if (card) card.classList.remove('dragging');
+  document.querySelectorAll('.cell-dragover').forEach(el => el.classList.remove('cell-dragover'));
+});
+
+document.addEventListener('dragover', event => {
+  const cell = event.target.closest('[data-cell-drop]');
+  if (cell) {
+    event.preventDefault();
+    cell.classList.add('cell-dragover');
+  }
+});
+
+document.addEventListener('dragleave', event => {
+  const cell = event.target.closest('[data-cell-drop]');
+  if (cell) {
+    cell.classList.remove('cell-dragover');
+  }
+});
+
+document.addEventListener('drop', async event => {
+  const cell = event.target.closest('[data-cell-drop]');
+  if (!cell) return;
+  event.preventDefault();
+  cell.classList.remove('cell-dragover');
+
+  if (!canEditWorking()) {
+    toast('Chỉ Người xếp lịch hoặc Quản trị viên mới được sửa ô ở bản nháp.');
+    return;
+  }
+
+  let data;
+  try {
+    const raw = event.dataTransfer.getData('application/json') || event.dataTransfer.getData('text/plain');
+    data = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  if (!data?.subjectId || !data?.teacherId) return;
+
+  const targetClassId = cell.dataset.cellClass;
+  const timeSlotId = cell.dataset.cellSlot;
+  const day = Number(cell.dataset.cellDay);
+  const period = Number(cell.dataset.cellPeriod);
+  const dayLabel = `Thứ ${day}`;
+
+  // Teacher conflict check
+  const busyInfo = isTeacherBusy(data.teacherId, dayLabel, period, targetClassId, workingDraft.draftSchedule, timeSlotId);
+  if (busyInfo.isBusy) {
+    const teaName = text(workingDraft.teachers, data.teacherId, 'fullName');
+    const confName = busyInfo.conflictingClass?.name || 'lớp khác';
+    toast(`GV ${teaName} đã có lịch dạy ở ${confName} vào tiết này!`);
+    return;
+  }
+
+  try {
+    const next = assignLessonToScheduleCell(workingDraft, {
+      classId: targetClassId,
+      day: dayLabel,
+      period,
+      timeSlotId,
+      subjectId: data.subjectId,
+      teacherId: data.teacherId
+    });
+    if (await syncWorkingToCloud(next)) {
+      render();
+      toast(`Đã xếp ${text(workingDraft.subjects, data.subjectId)} (${text(workingDraft.teachers, data.teacherId, 'fullName')}) vào lớp ${text(workingDraft.classes, targetClassId)}.`);
+    }
+  } catch (err) {
+    toast('Lỗi khi xếp tiết: ' + err.message);
+  }
+});
+
 // Run initial connection test and start Auth listener
 testConnection();
 handleAuthState();
+

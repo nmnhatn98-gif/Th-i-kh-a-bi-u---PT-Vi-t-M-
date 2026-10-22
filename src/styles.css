@@ -175,3 +175,97 @@
 .import-badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:0.3px}
 .import-badge.new{background:#e6f4ea;color:#137333;border:1px solid #b7e1cd}
 .import-badge.update{background:#e8f0fe;color:#1a73e8;border:1px solid #aecbfa}
+
+/* ---------------------------------------------------- */
+/* Publishing Engine Controls (Draft vs Published)      */
+/* ---------------------------------------------------- */
+.publish-engine-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.publish-toggle-group{display:flex;background:#e9f0e6;padding:3px;border-radius:8px;gap:2px}
+.publish-toggle-btn{border:none;background:transparent;padding:6px 12px;font-size:11px;font-weight:600;color:#5a7366;border-radius:6px;cursor:pointer;transition:all .15s}
+.publish-toggle-btn:hover{color:#1a4437}
+.publish-toggle-btn.selected{background:#fff;color:#134e3f;box-shadow:0 1px 4px rgba(0,0,0,0.08);font-weight:700}
+.publish-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.btn-publish-all{background:#059669;color:#fff;border:1px solid #047857;font-size:11px;font-weight:700;padding:6px 13px;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s}
+.btn-publish-all:hover{background:#047857}
+.btn-restore-published{background:#fff;color:#6b7280;border:1px solid #d1d5db;font-size:10px;font-weight:600;padding:6px 11px;border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;gap:4px;transition:all .15s}
+.btn-restore-published:hover{background:#f3f4f6;color:#374151;border-color:#9ca3af}
+.publish-time-badge{font-size:10px;background:#eef7ee;color:#2e7d32;border:1px solid #c8e6c9;padding:4px 9px;border-radius:6px;font-weight:600;display:inline-flex;align-items:center;gap:4px}
+
+/* ---------------------------------------------------- */
+/* Assignment Tray (Khay Thẻ Phân Công)                 */
+/* ---------------------------------------------------- */
+.assignment-tray-wrapper{background:#f8faf6;border:1px solid #dce5d8;border-radius:10px;margin-bottom:14px;box-shadow:0 2px 8px rgba(18,50,40,0.04)}
+.assignment-tray-bar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#eff4ec;border-top-left-radius:9px;border-top-right-radius:9px;border-bottom:1px solid #dde5da;flex-wrap:wrap;gap:10px}
+.tray-header-left{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tray-title-badge{font-size:11px;font-weight:700;color:#1a4437;display:inline-flex;align-items:center;gap:5px}
+.tray-class-picker{display:flex;align-items:center;gap:6px}
+.tray-picker-label{font-size:11px;color:#63786d;font-weight:600}
+.tray-select{font-size:11px;font-weight:700;color:#184239;border:1px solid #bed0bc;border-radius:6px;padding:4px 8px;background:#fff;max-width:200px}
+.tray-class-count{font-size:10px;color:#788c80;background:#e2ede0;padding:2px 7px;border-radius:10px}
+
+.tray-header-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tray-pos-toggle{display:flex;background:#dee8dc;padding:2px;border-radius:6px;gap:2px}
+.tray-pos-btn{border:none;background:transparent;padding:4px 9px;font-size:10px;font-weight:600;color:#4d665a;border-radius:5px;cursor:pointer;transition:all .15s}
+.tray-pos-btn:hover{color:#1a4437}
+.tray-pos-btn.active{background:#fff;color:#184239;box-shadow:0 1px 3px rgba(0,0,0,0.08);font-weight:700}
+
+.armed-indicator{display:inline-flex;align-items:center;gap:8px;background:#dcfce7;border:1px solid #86efac;color:#14532d;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;animation:pulseBorder 1.5s infinite}
+@keyframes pulseBorder{0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,0.4)}50%{box-shadow:0 0 0 4px rgba(16,185,129,0.15)}}
+.disarm-btn{border:none;background:#bbf7d0;color:#14532d;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;cursor:pointer}
+.disarm-btn:hover{background:#86efac}
+
+.tray-cards-container{display:flex;gap:10px;padding:12px 14px;overflow-x:auto;scrollbar-width:thin;scrollbar-color:#c8d6c5 #f8faf6}
+.tray-empty-hint{font-size:11px;color:#6b7280;padding:14px;text-align:center;width:100%}
+
+/* Assignment Card */
+.assignment-card{display:flex;align-items:stretch;background:#fff;border:1px solid #d4dfd2;border-radius:8px;overflow:hidden;cursor:grab;min-width:185px;max-width:220px;user-select:none;transition:all .15s ease-out;position:relative}
+.assignment-card:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(18,50,40,0.12);border-color:#99bba7}
+.assignment-card:active{cursor:grabbing}
+.assignment-card.dragging{opacity:0.4;transform:scale(0.96)}
+.assignment-card.armed{border:2px solid #059669;box-shadow:0 0 12px rgba(5,150,105,0.35);background:#f0fdf4}
+
+.card-color-stripe{width:6px;flex-shrink:0}
+.card-body{padding:8px 10px;flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.card-subject-row{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.card-subject-name{font-size:11px;font-weight:700;color:#184239;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-subject-code{font-size:9px;color:#6b8275;background:#f0f4ee;padding:1px 4px;border-radius:3px}
+.card-teacher-row{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.card-teacher-name{font-size:10px;color:#375346;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.card-count-badge{font-size:9px;color:#637a6d;background:#eaf2e8;padding:1px 5px;border-radius:4px;font-weight:600}
+.card-armed-tag{font-size:9px;font-weight:700;color:#047857;background:#d1fae5;padding:2px 5px;border-radius:4px;text-align:center;margin-top:2px}
+
+/* Right-docked Layout */
+.timetable-with-tray-container.layout-right{display:grid;grid-template-columns:1fr 270px;gap:14px;align-items:start}
+.timetable-tray-sidebar{position:sticky;top:80px;max-height:calc(100vh - 120px);overflow-y:auto}
+.timetable-tray-sidebar .assignment-tray-wrapper{margin-bottom:0}
+.timetable-tray-sidebar .tray-cards-container{flex-direction:column;max-height:calc(100vh - 220px);overflow-y:auto}
+.timetable-tray-sidebar .assignment-card{max-width:100%;min-width:0}
+
+/* Drag over highlights */
+.cell-dragover{outline:3px dashed #059669 !important;background:#d1fae5 !important}
+.cell-dragover button{background:#d1fae5 !important}
+
+/* ---------------------------------------------------- */
+/* Timetable Cell Popover Suggestions                   */
+/* ---------------------------------------------------- */
+.timetable-popover{padding:12px;width:320px}
+.popover-section-label{font-size:9px;font-weight:700;letter-spacing:0.8px;color:#6b8276;padding:4px 0 8px;border-bottom:1px solid #eef3ec;margin-bottom:8px}
+.popover-suggestions-list{max-height:260px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding-right:2px}
+.popover-suggestion-item{display:flex;align-items:center;gap:10px;width:100%;padding:8px 10px;border-radius:7px;border:1px solid #dce5da;background:#fff;text-align:left;cursor:pointer;transition:all .12s}
+.popover-suggestion-item.free:hover{background:#ecfdf5;border-color:#10b981;transform:translateX(2px)}
+.popover-suggestion-item.free.selected{background:#d1fae5;border-color:#059669}
+.popover-suggestion-item.busy{background:#f9fafb;border-color:#e5e7eb;cursor:not-allowed;opacity:0.72}
+.popover-suggestion-item.busy:hover{border-color:#fca5a5;background:#fef2f2}
+
+.item-color-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+.item-info{flex:1;min-width:0}
+.item-info strong{display:block;font-size:11px;color:#184239}
+.teacher-free-label{display:block;font-size:10px;color:#355345;margin-top:2px}
+.teacher-busy-label{display:block;font-size:10px;color:#dc2626;font-weight:600;margin-top:2px}
+.item-current-badge{font-size:9px;font-weight:700;color:#047857;background:#d1fae5;padding:2px 6px;border-radius:4px;flex-shrink:0}
+.item-assign-action{font-size:10px;font-weight:700;color:#059669;background:#e6f4ea;padding:3px 7px;border-radius:4px;flex-shrink:0}
+.popover-footer{margin-top:10px;padding-top:10px;border-top:1px solid #eef3ec}
+.popover-clear-slot-btn{width:100%;padding:8px;background:#fef2f2;color:#dc2626;border:1px solid #fecaca;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;transition:background .15s;text-align:center}
+.popover-clear-slot-btn:hover{background:#fee2e2;color:#b91c1c}
+.popover-goto-matrix-btn{font-size:10px;font-weight:600;background:#e6f4ea;color:#137333;border:1px solid #b7e1cd;padding:5px 9px;border-radius:5px;cursor:pointer}
+
