@@ -1012,14 +1012,3 @@ export const TEACHER_TEMPLATE_ROWS = [
   { 'STT': 5, 'Mã GV': 'GV05', 'Họ và tên': 'Vũ Đức Giang', 'Số điện thoại': '0945678901', 'Email': 'giang.vu@truong.edu.vn', 'Ghi chú / Môn dạy': 'Hóa học' },
   { 'STT': 6, 'Mã GV': '', 'Họ và tên': 'Đặng Thu Hà (Tự sinh mã)', 'Số điện thoại': '0978901234', 'Email': 'ha.dang@truong.edu.vn', 'Ghi chú / Môn dạy': 'Sinh học' }
 ];
-
-export function computeExportFileName(className, weekRaw) {
-  const cleanClassName = String(className || 'Lop')
-    .replace(/^Lớp\s*/i, '')
-    .trim()
-    .replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, '');
-  const weekDigits = String(weekRaw || '').match(/\d+/);
-  const cleanWeek = weekDigits ? weekDigits[0] : String(weekRaw || '8').replace(/[^a-zA-Z0-9]/g, '');
-  return `TKB_${cleanClassName}_Tuan_${cleanWeek}.png`;
-}
-

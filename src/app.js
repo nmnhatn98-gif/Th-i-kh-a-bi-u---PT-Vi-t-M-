@@ -28,8 +28,7 @@ import {
   publishDraft,
   restoreDraftFromPublished,
   assignLessonToScheduleCell,
-  removeLessonFromScheduleCell,
-  computeExportFileName
+  removeLessonFromScheduleCell
 } from './core.js';
 import {
   auth,
