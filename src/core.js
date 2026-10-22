@@ -464,3 +464,239 @@ export function resolveSubjectAndTeacher(state, { quickLine = '', subjectInput =
     state: draft
   };
 }
+
+export function normalizeHeaderKey(str) {
+  return removeVietnameseTones(String(str || ''))
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function isHeaderRow(row) {
+  if (!Array.isArray(row)) return false;
+  return row.some(cell => {
+    const key = normalizeHeaderKey(cell);
+    return /(hoten|hovaten|tengiaovien|tengv|fullname|name)/.test(key);
+  });
+}
+
+function parse2DArrayTeacherRows(rows) {
+  if (!rows || !rows.length) return [];
+
+  // Find header row in first 12 rows
+  let headerIndex = -1;
+  for (let i = 0; i < Math.min(rows.length, 12); i++) {
+    if (isHeaderRow(rows[i])) {
+      headerIndex = i;
+      break;
+    }
+  }
+
+  let colMap = { name: -1, code: -1, phone: -1, email: -1, note: -1 };
+
+  if (headerIndex !== -1) {
+    const headerRow = rows[headerIndex];
+    headerRow.forEach((cell, idx) => {
+      const k = normalizeHeaderKey(cell);
+      if (/(hoten|hovaten|tengiaovien|tengv|fullname|name)/.test(k) && colMap.name === -1) colMap.name = idx;
+      else if (/(magv|magiaovien|code|ma|kyhieu)/.test(k) && colMap.code === -1) colMap.code = idx;
+      else if (/(sdt|sodienthoai|dienthoai|phone|mobile)/.test(k) && colMap.phone === -1) colMap.phone = idx;
+      else if (/(email|thudientu|mail)/.test(k) && colMap.email === -1) colMap.email = idx;
+      else if (/(ghichu|note|monday|bomon|chuyenmon)/.test(k) && colMap.note === -1) colMap.note = idx;
+    });
+  } else {
+    // Fallback: heuristic mapping
+    // Column 0 is often STT or Code; Column 1 is Name
+    colMap = { name: 1, code: 0, phone: 2, email: 3, note: 4 };
+    headerIndex = -1;
+  }
+
+  const results = [];
+  const startRow = headerIndex + 1;
+
+  for (let r = startRow; r < rows.length; r++) {
+    const row = rows[r];
+    if (!Array.isArray(row) || !row.length) continue;
+
+    let fullName = colMap.name !== -1 && row[colMap.name] !== undefined ? String(row[colMap.name]).trim() : '';
+    let code = colMap.code !== -1 && row[colMap.code] !== undefined ? String(row[colMap.code]).trim() : '';
+    const phone = colMap.phone !== -1 && row[colMap.phone] !== undefined ? String(row[colMap.phone]).trim() : '';
+    const email = colMap.email !== -1 && row[colMap.email] !== undefined ? String(row[colMap.email]).trim() : '';
+    const note = colMap.note !== -1 && row[colMap.note] !== undefined ? String(row[colMap.note]).trim() : '';
+
+    // If fallback guessed col 1 is name but col 1 is empty and col 0 has text
+    if (!fullName && headerIndex === -1 && row[0] && typeof row[0] === 'string' && row[0].trim().length > 2) {
+      fullName = row[0].trim();
+      code = '';
+    }
+
+    if (!fullName || fullName.length < 2) continue;
+    // Skip if it looks like a header repetition or total row
+    const norm = normalizeHeaderKey(fullName);
+    if (/^(stt|hoten|hovaten|tongcong|cong|banso)$/.test(norm)) continue;
+
+    results.push({ fullName, code, phone, email, note });
+  }
+
+  return results;
+}
+
+function parseObjectTeacherRows(objects) {
+  const results = [];
+
+  for (const obj of objects) {
+    if (!obj || typeof obj !== 'object') continue;
+    let fullName = '';
+    let code = '';
+    let phone = '';
+    let email = '';
+    let note = '';
+
+    for (const [rawKey, val] of Object.entries(obj)) {
+      const k = normalizeHeaderKey(rawKey);
+      const strVal = val != null ? String(val).trim() : '';
+      if (!strVal) continue;
+
+      if (/^(hoten|hovaten|tengiaovien|tengv|fullname|name)$/.test(k) && !fullName) {
+        fullName = strVal;
+      } else if (/^(magv|magiaovien|code|ma|kyhieu)$/.test(k) && !code) {
+        code = strVal;
+      } else if (/^(sdt|sodienthoai|dienthoai|phone|mobile)$/.test(k) && !phone) {
+        phone = strVal;
+      } else if (/^(email|thudientu|mail)$/.test(k) && !email) {
+        email = strVal;
+      } else if (/^(ghichu|note|monday|bomon|chuyenmon)$/.test(k) && !note) {
+        note = strVal;
+      }
+    }
+
+    if (!fullName || fullName.length < 2) continue;
+    const norm = normalizeHeaderKey(fullName);
+    if (/^(stt|hoten|hovaten|tongcong|cong|banso)$/.test(norm)) continue;
+
+    results.push({ fullName, code, phone, email, note });
+  }
+
+  return results;
+}
+
+export function parseTeacherRows(rawRows) {
+  if (!Array.isArray(rawRows) || rawRows.length === 0) return [];
+  if (Array.isArray(rawRows[0])) {
+    return parse2DArrayTeacherRows(rawRows);
+  }
+  return parseObjectTeacherRows(rawRows);
+}
+
+export function importTeachersIntoState(state, teacherRows, { mode = 'merge' } = {}) {
+  const parsed = parseTeacherRows(teacherRows);
+  if (!parsed.length) {
+    throw Error('Không tìm thấy dữ liệu giáo viên hợp lệ trong tệp.');
+  }
+
+  const draft = clone(state);
+  draft.teachers = Array.isArray(draft.teachers) ? [...draft.teachers] : [];
+
+  const existingByCode = new Map();
+  const existingByName = new Map();
+
+  for (const t of draft.teachers) {
+    if (t.code) existingByCode.set(String(t.code).trim().toUpperCase(), t);
+    if (t.fullName) existingByName.set(String(t.fullName).trim().toLowerCase(), t);
+  }
+
+  let added = 0;
+  let updated = 0;
+  let skipped = 0;
+  const importedTeachers = [];
+
+  for (const item of parsed) {
+    const normName = item.fullName.trim().toLowerCase();
+    const upperCode = item.code ? item.code.trim().toUpperCase() : '';
+
+    let existing = null;
+    if (upperCode && existingByCode.has(upperCode)) {
+      existing = existingByCode.get(upperCode);
+    } else if (existingByName.has(normName)) {
+      existing = existingByName.get(normName);
+    }
+
+    if (existing) {
+      if (mode === 'merge') {
+        existing.fullName = item.fullName.trim();
+        if (upperCode) existing.code = upperCode;
+        if (item.phone) existing.phone = item.phone.trim();
+        if (item.email) existing.email = item.email.trim();
+        if (item.note) existing.note = item.note.trim();
+        if (!Array.isArray(existing.assignments)) existing.assignments = [];
+        updated++;
+        importedTeachers.push({
+          id: existing.id,
+          code: existing.code,
+          fullName: existing.fullName,
+          status: 'UPDATED'
+        });
+      } else {
+        skipped++;
+        importedTeachers.push({
+          id: existing.id,
+          code: existing.code,
+          fullName: existing.fullName,
+          status: 'SKIPPED'
+        });
+      }
+    } else {
+      let finalCode = upperCode;
+      if (!finalCode) {
+        finalCode = generateTeacherCode(item.fullName, draft.teachers);
+      }
+      let counter = 1;
+      const baseCode = finalCode;
+      while (existingByCode.has(finalCode)) {
+        finalCode = `${baseCode}_${counter++}`;
+      }
+
+      const newTeacher = {
+        id: uid(),
+        code: finalCode,
+        fullName: item.fullName.trim(),
+        assignments: [],
+        ...(item.phone ? { phone: item.phone.trim() } : {}),
+        ...(item.email ? { email: item.email.trim() } : {}),
+        ...(item.note ? { note: item.note.trim() } : {})
+      };
+
+      draft.teachers.push(newTeacher);
+      existingByCode.set(finalCode, newTeacher);
+      existingByName.set(normName, newTeacher);
+      added++;
+      importedTeachers.push({
+        id: newTeacher.id,
+        code: newTeacher.code,
+        fullName: newTeacher.fullName,
+        status: 'NEW'
+      });
+    }
+  }
+
+  validateState(draft);
+
+  return {
+    state: draft,
+    stats: {
+      total: parsed.length,
+      added,
+      updated,
+      skipped,
+      teachers: importedTeachers
+    }
+  };
+}
+
+export const TEACHER_TEMPLATE_ROWS = [
+  { 'STT': 1, 'Mã GV': 'GV01', 'Họ và tên': 'Nguyễn Văn An', 'Số điện thoại': '0912345678', 'Email': 'an.nguyen@truong.edu.vn', 'Ghi chú / Môn dạy': 'Toán học' },
+  { 'STT': 2, 'Mã GV': 'GV02', 'Họ và tên': 'Trần Thị Bình', 'Số điện thoại': '0987654321', 'Email': 'binh.tran@truong.edu.vn', 'Ghi chú / Môn dạy': 'Ngữ văn' },
+  { 'STT': 3, 'Mã GV': 'GV03', 'Họ và tên': 'Lê Hoàng Cường', 'Số điện thoại': '0903123456', 'Email': 'cuong.le@truong.edu.vn', 'Ghi chú / Môn dạy': 'Tiếng Anh' },
+  { 'STT': 4, 'Mã GV': 'GV04', 'Họ và tên': 'Phạm Mai Dung', 'Số điện thoại': '0934567890', 'Email': 'dung.pham@truong.edu.vn', 'Ghi chú / Môn dạy': 'Vật lý' },
+  { 'STT': 5, 'Mã GV': 'GV05', 'Họ và tên': 'Vũ Đức Giang', 'Số điện thoại': '0945678901', 'Email': 'giang.vu@truong.edu.vn', 'Ghi chú / Môn dạy': 'Hóa học' },
+  { 'STT': 6, 'Mã GV': '', 'Họ và tên': 'Đặng Thu Hà (Tự sinh mã)', 'Số điện thoại': '0978901234', 'Email': 'ha.dang@truong.edu.vn', 'Ghi chú / Môn dạy': 'Sinh học' }
+];

@@ -18,7 +18,10 @@ import {
   assignTeacherToClassSubject,
   unassignClassSubject,
   getAssignedTeacher,
-  normalizeState
+  normalizeState,
+  parseTeacherRows,
+  importTeachersIntoState,
+  normalizeHeaderKey
 } from '../src/core.js';
 
 test('1. Khung gốc: 17 lớp, 45 tiết, 289 ô cố định, giờ bắt đầu/kết thúc đúng nguồn', () => {
@@ -493,6 +496,118 @@ test('27. Bỏ gán / Tẩy phân công: unassignClassSubject xóa khỏi assign
   const teaB = state.teachers.find(t => t.id === 'tea_b');
   assert.equal(teaB.assignments.length, 0);
   assert.equal(getAssignedTeacher(state, 'cls_6a1', 'subj_toan'), null);
+});
+
+test('28. Nhập danh sách giáo viên: parse dữ liệu bảng 2D và mảng object tiếng Việt linh hoạt', () => {
+  // Test case 1: 2D array with headers in row 1 (row 0 has title banner)
+  const sheetRows = [
+    ['TRƯỜNG THCS NGUYỄN DU - NĂM HỌC 2026-2027'],
+    ['STT', 'Mã GV', 'Họ và tên giáo viên', 'Số điện thoại', 'Email', 'Ghi chú'],
+    [1, 'GV01', 'Nguyễn Văn An', '0912345678', 'an@school.edu.vn', 'Toán'],
+    [2, 'GV02', 'Trần Thị Bình', '0987654321', 'binh@school.edu.vn', 'Văn'],
+    [3, '', 'Lê Hoàng Cường', '', '', 'Tiếng Anh (chưa có mã)']
+  ];
+
+  const parsed1 = parseTeacherRows(sheetRows);
+  assert.equal(parsed1.length, 3);
+  assert.equal(parsed1[0].fullName, 'Nguyễn Văn An');
+  assert.equal(parsed1[0].code, 'GV01');
+  assert.equal(parsed1[0].phone, '0912345678');
+  assert.equal(parsed1[1].fullName, 'Trần Thị Bình');
+  assert.equal(parsed1[2].fullName, 'Lê Hoàng Cường');
+  assert.equal(parsed1[2].code, '');
+
+  // Test case 2: Object array
+  const objRows = [
+    { 'Mã giáo viên': 'T01', 'Họ và tên': 'Hoàng Mai Dung', 'SĐT': '0901234567' },
+    { 'Mã GV': 'T02', 'Họ tên': 'Vũ Đức Giang', 'Ghi chú': 'Hóa học' }
+  ];
+  const parsed2 = parseTeacherRows(objRows);
+  assert.equal(parsed2.length, 2);
+  assert.equal(parsed2[0].fullName, 'Hoàng Mai Dung');
+  assert.equal(parsed2[0].code, 'T01');
+  assert.equal(parsed2[1].fullName, 'Vũ Đức Giang');
+});
+
+test('29. Import giáo viên vào State: Thêm mới, tự sinh mã nếu thiếu, cập nhật thông tin người đã có', () => {
+  let state = normalizeState(clone(SEED));
+  // Add an initial teacher to test updating
+  state.teachers = [
+    { id: 'tea_init_1', code: 'GV01', fullName: 'Thầy Cũ', assignments: [] }
+  ];
+  const initialCount = state.teachers.length;
+  const existingFirst = state.teachers[0];
+
+  // Import list contains 1 existing teacher (update phone/note) and 2 brand new teachers (one without code)
+  const importData = [
+    {
+      'Mã GV': existingFirst.code,
+      'Họ và tên': existingFirst.fullName,
+      'Số điện thoại': '0999888777',
+      'Ghi chú': 'Tổ trưởng tổ Toán'
+    },
+    {
+      'Mã GV': 'GV_MOI_1',
+      'Họ và tên': 'Phan Thanh Bình',
+      'Số điện thoại': '0911222333',
+      'Ghi chú': 'Môn Địa lý'
+    },
+    {
+      'Mã GV': '',
+      'Họ và tên': 'Ngô Khánh Huyền',
+      'Ghi chú': 'Giáo viên mới'
+    }
+  ];
+
+  const { state: nextState, stats } = importTeachersIntoState(state, importData, { mode: 'merge' });
+  assert.equal(stats.total, 3);
+  assert.equal(stats.updated, 1);
+  assert.equal(stats.added, 2);
+  assert.equal(nextState.teachers.length, initialCount + 2);
+
+  // Existing teacher updated with phone and note, kept same ID
+  const updatedTea = nextState.teachers.find(t => t.id === existingFirst.id);
+  assert.equal(updatedTea.phone, '0999888777');
+  assert.equal(updatedTea.note, 'Tổ trưởng tổ Toán');
+
+  // New teacher without code had unique code generated
+  const autoCodedTea = nextState.teachers.find(t => t.fullName === 'Ngô Khánh Huyền');
+  assert.ok(autoCodedTea);
+  assert.ok(autoCodedTea.code.length >= 2);
+  assert.doesNotThrow(() => validateState(nextState));
+});
+
+test('30. Import giáo viên bảo toàn phân công môn/lớp và liên kết thời khóa biểu đã có', () => {
+  let state = normalizeState(clone(SEED));
+  state.teachers = [
+    { id: 'tea_init_2', code: 'GV02', fullName: 'Cô Giáo Cũ', assignments: [] }
+  ];
+  // Assign teacher to a class
+  state = assignTeacherToClassSubject(state, {
+    classId: 'cls_6a1',
+    subjectId: 'subj_toan',
+    teacherId: state.teachers[0].id
+  });
+
+  const tea0 = state.teachers[0];
+  assert.equal(tea0.assignments.length, 1);
+
+  // Import update for teacher 0
+  const importRows = [
+    {
+      'Mã GV': tea0.code,
+      'Họ và tên': tea0.fullName,
+      'Số điện thoại': '0988776655'
+    }
+  ];
+
+  const { state: nextState } = importTeachersIntoState(state, importRows, { mode: 'merge' });
+  const updatedTea0 = nextState.teachers.find(t => t.id === tea0.id);
+  assert.equal(updatedTea0.phone, '0988776655');
+  // Assignments must still be preserved!
+  assert.equal(updatedTea0.assignments.length, 1);
+  assert.deepEqual(updatedTea0.assignments[0], { classId: 'cls_6a1', subjectId: 'subj_toan' });
+  assert.equal(getAssignedTeacher(nextState, 'cls_6a1', 'subj_toan')?.id, tea0.id);
 });
 
 

@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx';
 import { SEED } from './seed.js';
 import {
   uid,
@@ -16,7 +17,10 @@ import {
   assignTeacherToClassSubject,
   unassignClassSubject,
   getAssignedTeacher,
-  normalizeState
+  normalizeState,
+  parseTeacherRows,
+  importTeachersIntoState,
+  TEACHER_TEMPLATE_ROWS
 } from './core.js';
 import {
   auth,
@@ -1472,12 +1476,15 @@ function renderMatrixSection(s) {
 
         if (assignedTeacher) {
           cellsHtml += `
-            <td class="lesson filled ${isHighlighted ? 'cell-highlighted' : ''} ${isDimmed ? 'cell-dimmed' : ''}" style="--subject:${esc(subj.color)};">
+            <td class="lesson filled ${isHighlighted ? 'cell-highlighted' : ''} ${isDimmed ? 'cell-dimmed' : ''}" style="--subject:${esc(subj.color)};position:relative;">
               <button type="button" data-assign-cell="true" data-assign-class="${esc(cls.id)}" data-assign-subject="${esc(subj.id)}" ${isReadonly ? 'disabled' : ''} aria-label="${esc(`${cls.name}, ${subj.name}: ${assignedTeacher.fullName}`)}">
                 <span class="subject-name" style="font-weight:600;font-size:9px;color:#184239;">${esc(subj.name)}</span>
                 <strong class="teacher-name" style="font-size:10px;color:#184239;display:block;margin-top:2px;">${esc(assignedTeacher.fullName)}</strong>
                 <span class="cell-note" style="font-size:8px;color:#677e71;display:inline-block;background:#eef3eb;padding:1px 5px;border-radius:4px;margin-top:2px;">${esc(assignedTeacher.code)}</span>
               </button>
+              ${!isReadonly ? `
+                <button type="button" class="cell-quick-unassign-btn" data-action="popover-unassign" data-class="${esc(cls.id)}" data-subject="${esc(subj.id)}" title="Xóa phân công: ${esc(assignedTeacher.fullName)}" aria-label="Xóa phân công">✕</button>
+              ` : ''}
             </td>
           `;
         } else {
@@ -1673,8 +1680,31 @@ function catalog() {
         <section class="card">
           <div class="card-title">
             <h2>${label} <small>${state[kind]?.length || 0}</small></h2>
-            <button data-add="${kind}" class="primary">＋ Thêm</button>
+            <div class="catalog-actions-group">
+              ${
+                kind === 'teachers'
+                  ? `
+                <button type="button" class="excel-btn template-btn" data-action="download-teacher-template" title="Tải file mẫu Excel (.xlsx) với các cột chuẩn">
+                  ↓ File mẫu
+                </button>
+                <button type="button" class="excel-btn import-btn" data-action="import-teachers-excel" title="Tải lên danh sách giáo viên từ file Excel (.xlsx, .xls) hoặc CSV">
+                  ↑ Nhập Excel
+                </button>
+              `
+                  : ''
+              }
+              <button data-add="${kind}" class="primary">＋ Thêm</button>
+            </div>
           </div>
+          ${
+            kind === 'teachers'
+              ? `
+            <div class="teacher-import-hint">
+              💡 <strong>Tải danh sách GV:</strong> Nhấp <code>↑ Nhập Excel</code> để tải file <code>.xlsx</code>, <code>.xls</code> hoặc <code>.csv</code>. Cột chuẩn: Họ và tên, Mã GV, SĐT, Email, Ghi chú.
+            </div>
+          `
+              : ''
+          }
           ${
             state[kind]?.length
               ? `
@@ -2176,7 +2206,8 @@ function openAssignmentPopover({ classId, subjectId, anchorElement }) {
       <div class="popover-header">
         <div>
           <strong style="font-size:12px;color:#184239;">${esc(subj?.name || 'Môn học')}</strong>
-          <small style="color:#71877b;">Lớp ${esc(cls?.name || '')}</small>
+          <small style="color:#71877b;"> · Lớp ${esc(cls?.name || '')}</small>
+          ${currentAssigned ? `<div style="font-size:10px;color:#047857;font-weight:600;margin-top:2px;">Đang phân công: ${esc(currentAssigned.fullName)} (${esc(currentAssigned.code)})</div>` : '<div style="font-size:10px;color:#8fa195;margin-top:2px;">Chưa phân công giáo viên</div>'}
         </div>
         <button type="button" class="popover-close-btn" data-action="close-popover" title="Đóng">✕</button>
       </div>
@@ -2189,18 +2220,18 @@ function openAssignmentPopover({ classId, subjectId, anchorElement }) {
           const initials = (t.code || 'GV').slice(0, 3).toUpperCase();
           const assignCount = Array.isArray(t.assignments) ? t.assignments.length : 0;
           return `
-            <button type="button" class="popover-teacher-btn ${isCurrent ? 'selected' : ''}" data-popover-select-teacher="${esc(t.id)}" data-class="${esc(classId)}" data-subject="${esc(subjectId)}">
+            <button type="button" class="popover-teacher-btn ${isCurrent ? 'selected' : ''}" data-popover-select-teacher="${esc(t.id)}" data-class="${esc(classId)}" data-subject="${esc(subjectId)}" title="${isCurrent ? 'Click lại để bỏ phân công' : 'Click để phân công'}">
               <span class="popover-avatar">${esc(initials)}</span>
               <span class="popover-teacher-name">${esc(t.fullName)}</span>
               <span class="popover-teacher-code">${esc(t.code)}</span>
-              ${isCurrent ? '<span style="color:#16a34a;font-weight:700;margin-left:auto;">✓</span>' : `<small style="font-size:8px;color:#8ba093;margin-left:auto;">${assignCount} lớp</small>`}
+              ${isCurrent ? '<span style="color:#16a34a;font-weight:700;margin-left:auto;" title="Đang dạy (Click lại để bỏ phân công)">✓ Đang dạy</span>' : `<small style="font-size:8px;color:#8ba093;margin-left:auto;">${assignCount} lớp</small>`}
             </button>
           `;
         }).join('') : '<p style="font-size:11px;color:#888;padding:12px;text-align:center;">Chưa có giáo viên nào trong danh mục.</p>'}
       </div>
 
       <button type="button" class="popover-unassign-btn" data-action="popover-unassign" data-class="${esc(classId)}" data-subject="${esc(subjectId)}">
-        ✕ Xóa phân công
+        ${currentAssigned ? `✕ Xóa bỏ phân công (${esc(currentAssigned.fullName)})` : '✕ Xóa phân công (Ô đang trống)'}
       </button>
     </div>
   `;
@@ -2223,6 +2254,103 @@ function openAssignmentPopover({ classId, subjectId, anchorElement }) {
 function closePopover() {
   const existing = document.querySelector('#active-matrix-popover-root');
   if (existing) existing.remove();
+}
+
+let pendingImportTeachers = [];
+
+function openTeacherImportPreviewModal({ fileName, parsedTeachers }) {
+  pendingImportTeachers = parsedTeachers;
+
+  const currentTeachers = workingDraft.teachers || [];
+  const existingByCode = new Set(currentTeachers.map(t => String(t.code || '').trim().toUpperCase()).filter(Boolean));
+  const existingByName = new Set(currentTeachers.map(t => String(t.fullName || '').trim().toLowerCase()).filter(Boolean));
+
+  let newCount = 0;
+  let updateCount = 0;
+
+  const previewList = parsedTeachers.map(p => {
+    const upperCode = p.code ? p.code.trim().toUpperCase() : '';
+    const lowerName = p.fullName.trim().toLowerCase();
+    const isExisting = (upperCode && existingByCode.has(upperCode)) || existingByName.has(lowerName);
+    if (isExisting) updateCount++;
+    else newCount++;
+    return { ...p, isExisting };
+  });
+
+  openDialog(`
+    <form id="teacher-import-form">
+      <div class="dialog-title">
+        <div>
+          <div class="eyebrow">NHẬP DANH SÁCH GIÁO VIÊN TỪ EXCEL</div>
+          <h2>Xem trước tệp: ${esc(fileName)}</h2>
+          <p>Tìm thấy <strong>${parsedTeachers.length}</strong> giáo viên trong tệp.</p>
+        </div>
+        ${closeButton}
+      </div>
+
+      <div class="excel-import-summary">
+        <div class="import-stat-pill new">
+          <span class="dot"></span>
+          <strong>${newCount}</strong> giáo viên mới
+        </div>
+        <div class="import-stat-pill update">
+          <span class="dot"></span>
+          <strong>${updateCount}</strong> giáo viên đã có (cập nhật thông tin)
+        </div>
+      </div>
+
+      <div class="excel-import-options">
+        <label class="radio-label">
+          <input type="radio" name="importMode" value="merge" checked>
+          <span><strong>Bổ sung & Cập nhật (Khuyên dùng):</strong> Thêm mới giáo viên chưa có; cập nhật SĐT, email, ghi chú cho giáo viên đã có (bảo toàn phân công môn và lớp chủ nhiệm).</span>
+        </label>
+        <label class="radio-label">
+          <input type="radio" name="importMode" value="skip">
+          <span><strong>Chỉ thêm mới:</strong> Bỏ qua những giáo viên đã có mã hoặc trùng tên.</span>
+        </label>
+      </div>
+
+      <div class="excel-preview-scroll">
+        <table class="excel-preview-table">
+          <thead>
+            <tr>
+              <th style="width:36px;">STT</th>
+              <th style="width:75px;">Mã GV</th>
+              <th>Họ và tên</th>
+              <th style="width:95px;">Số điện thoại</th>
+              <th>Ghi chú / Môn</th>
+              <th style="width:85px;text-align:center;">Trạng thái</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${previewList.map((item, idx) => `
+              <tr class="${item.isExisting ? 'row-update' : 'row-new'}">
+                <td>${idx + 1}</td>
+                <td><strong>${esc(item.code || '(Tự sinh)')}</strong></td>
+                <td>${esc(item.fullName)}</td>
+                <td>${esc(item.phone || '—')}</td>
+                <td><small>${esc(item.note || item.email || '—')}</small></td>
+                <td style="text-align:center;">
+                  ${item.isExisting 
+                    ? '<span class="import-badge update">Cập nhật</span>' 
+                    : '<span class="import-badge new">Thêm mới</span>'}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div id="form-error" class="form-error" role="alert"></div>
+
+      <div class="dialog-actions">
+        <button type="button" data-action="close">Hủy</button>
+        <button type="submit" class="primary">
+          ✓ Xác nhận nhập ${parsedTeachers.length} giáo viên
+        </button>
+      </div>
+    </form>
+  `);
 }
 
 function cellEditor(classId, timeSlotId) {
@@ -2665,11 +2793,136 @@ const actions = {
     } catch (e) {
       toast(e.message);
     }
+  },
+  'popover-unassign': async element => {
+    if (!canEditWorking()) {
+      toast('Bản lịch đã chốt hoặc bạn không có quyền sửa đổi bản nháp.');
+      return;
+    }
+    const classId = element.dataset.class;
+    const subjectId = element.dataset.subject;
+    closePopover();
+    if (!classId || !subjectId) return;
+    try {
+      const next = unassignClassSubject(workingDraft, { classId, subjectId });
+      if (await syncWorkingToCloud(next)) {
+        render();
+        toast('Đã xóa bỏ phân công chuyên môn.');
+      }
+    } catch (e) {
+      toast('Lỗi khi xóa phân công: ' + e.message);
+    }
+  },
+  'brush-eraser': () => {
+    brushMode = (brushMode === 'eraser' ? 'none' : 'eraser');
+    if (brushMode === 'eraser') selectedTeacherHighlight = '';
+    render();
+    if (brushMode === 'eraser') {
+      toast('Đã bật chế độ Tẩy: Click vào ô bất kỳ trên ma trận để xóa phân công.');
+    } else {
+      toast('Đã tắt chế độ Tẩy.');
+    }
+  },
+  'brush-off': () => {
+    brushMode = 'none';
+    brushTeacherId = '';
+    selectedTeacherHighlight = '';
+    render();
+    toast('Đã tắt chế độ cọ.');
+  },
+  'clear-highlight': () => {
+    selectedTeacherHighlight = '';
+    if (brushMode !== 'brush') brushTeacherId = '';
+    render();
+  },
+  'close-popover': () => {
+    closePopover();
+  },
+  'respond-request': element => {
+    respondRequestDialog(element.dataset.id, element.dataset.decision);
+  },
+  import: () => {
+    if (!isSchedulerRole()) return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const json = JSON.parse(text);
+        const next = parseBackup(json, SEED);
+        if (confirm(`Bạn có chắc muốn nhập dữ liệu từ "${file.name}"? Dữ liệu bản nháp hiện tại sẽ được thay thế.`)) {
+          if (await syncWorkingToCloud(next)) {
+            toast('Đã nhập dữ liệu thành công!');
+            render();
+          }
+        }
+      } catch (err) {
+        alert('Lỗi nhập dữ liệu: ' + err.message);
+      }
+    };
+    input.click();
+  },
+  'download-teacher-template': () => {
+    try {
+      const ws = XLSX.utils.json_to_sheet(TEACHER_TEMPLATE_ROWS);
+      ws['!cols'] = [
+        { wch: 6 },
+        { wch: 12 },
+        { wch: 25 },
+        { wch: 16 },
+        { wch: 28 },
+        { wch: 26 }
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'DanhSachGiaoVien');
+      XLSX.writeFile(wb, 'danh_sach_giao_vien_mau.xlsx');
+      toast('Đã tải xuống file Excel mẫu: danh_sach_giao_vien_mau.xlsx');
+    } catch (err) {
+      toast('Không thể tải file mẫu: ' + err.message);
+    }
+  },
+  'import-teachers-excel': () => {
+    if (!isSchedulerRole()) {
+      toast('Bạn không có quyền chỉnh sửa danh mục giáo viên.');
+      return;
+    }
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '.xlsx, .xls, .csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/csv';
+    fileInput.onchange = async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      try {
+        toast(`Đang đọc tệp "${file.name}"...`);
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        if (!firstSheetName) {
+          throw Error('Tệp Excel không chứa sheet dữ liệu nào.');
+        }
+        const sheet = workbook.Sheets[firstSheetName];
+        const raw2D = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+        const parsedTeachers = parseTeacherRows(raw2D);
+        if (!parsedTeachers.length) {
+          throw Error('Không tìm thấy dữ liệu giáo viên trong tệp. Vui lòng kiểm tra lại cột "Họ và tên".');
+        }
+        openTeacherImportPreviewModal({
+          fileName: file.name,
+          parsedTeachers
+        });
+      } catch (err) {
+        alert('Lỗi đọc file Excel: ' + err.message);
+      }
+    };
+    fileInput.click();
   }
 };
 
 document.addEventListener('click', async event => {
-  const element = event.target.closest('button, [data-toggle-slot]');
+  const element = event.target.closest('button, [data-toggle-slot], [data-action], [data-select-teacher], [data-assign-cell], [data-popover-select-teacher]');
   if (!element) return;
 
   if (element.dataset.loginAs) {
@@ -2677,8 +2930,8 @@ document.addEventListener('click', async event => {
     render();
     return;
   }
-  if (element.dataset.action) {
-    actions[element.dataset.action]?.(element);
+  if (element.dataset.action && actions[element.dataset.action]) {
+    await actions[element.dataset.action](element);
     return;
   }
   if (element.dataset.view) {
@@ -2744,36 +2997,9 @@ document.addEventListener('click', async event => {
     }
     return;
   }
-  if (element.dataset.respondRequest) {
-    respondRequestDialog(element.dataset.id, element.dataset.decision);
-    return;
-  }
   if (element.dataset.setMatrixMode) {
     matrixViewMode = element.dataset.setMatrixMode;
     render();
-    return;
-  }
-  if (element.dataset.action === 'brush-eraser') {
-    brushMode = (brushMode === 'eraser' ? 'none' : 'eraser');
-    if (brushMode === 'eraser') selectedTeacherHighlight = '';
-    render();
-    return;
-  }
-  if (element.dataset.action === 'brush-off') {
-    brushMode = 'none';
-    brushTeacherId = '';
-    selectedTeacherHighlight = '';
-    render();
-    return;
-  }
-  if (element.dataset.action === 'clear-highlight') {
-    selectedTeacherHighlight = '';
-    if (brushMode !== 'brush') brushTeacherId = '';
-    render();
-    return;
-  }
-  if (element.dataset.action === 'close-popover') {
-    closePopover();
     return;
   }
   if (element.dataset.popoverSelectTeacher || element.closest('[data-popover-select-teacher]')) {
@@ -2782,17 +3008,15 @@ document.addEventListener('click', async event => {
     const classId = btn.dataset.class;
     const subjectId = btn.dataset.subject;
     closePopover();
-    const next = assignTeacherToClassSubject(workingDraft, { classId, subjectId, teacherId });
-    if (await syncWorkingToCloud(next)) {
-      render();
+    const current = getAssignedTeacher(workingDraft, classId, subjectId);
+    let next;
+    if (current && current.id === teacherId) {
+      // Toggle unassign
+      next = unassignClassSubject(workingDraft, { classId, subjectId });
+      toast('Đã xóa bỏ phân công môn học này.');
+    } else {
+      next = assignTeacherToClassSubject(workingDraft, { classId, subjectId, teacherId });
     }
-    return;
-  }
-  if (element.dataset.action === 'popover-unassign') {
-    const classId = element.dataset.class;
-    const subjectId = element.dataset.subject;
-    closePopover();
-    const next = unassignClassSubject(workingDraft, { classId, subjectId });
     if (await syncWorkingToCloud(next)) {
       render();
     }

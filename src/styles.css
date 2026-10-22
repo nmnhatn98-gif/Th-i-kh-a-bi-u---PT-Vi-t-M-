@@ -137,3 +137,41 @@
 .catalog-teacher-card{cursor:pointer;transition:background .15s, border-color .15s}
 .catalog-teacher-card:hover{background:#f6faf4}
 .catalog-teacher-card.selected{border-left:3px solid #16a34a;background:#f0f8ee}
+.cell-quick-unassign-btn{position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#ef4444;color:#fff;border:none;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;cursor:pointer;opacity:0;transition:opacity .15s, transform .1s;z-index:10;padding:0;line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.25)}
+.lesson.filled:hover .cell-quick-unassign-btn{opacity:1}
+.cell-quick-unassign-btn:hover{background:#b91c1c;transform:scale(1.2)}
+
+/* Catalog Excel Actions & Preview Modal */
+.catalog-actions-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.excel-btn{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:6px 10px;border-radius:6px;cursor:pointer;font-weight:600;transition:all .15s}
+.template-btn{background:#f0f5ee;border:1px solid #c9d8c7;color:#285240}
+.template-btn:hover{background:#e2ece0;color:#184232}
+.import-btn{background:#e6f4ea;border:1px solid #a3d4b1;color:#137333}
+.import-btn:hover{background:#ceead6;color:#0d5926}
+.teacher-import-hint{font-size:10px;color:#496d5e;background:#edf4ec;border:1px solid #dbe7da;border-radius:6px;padding:7px 10px;margin-bottom:12px;line-height:1.5}
+.teacher-import-hint code{background:#dbe8d9;padding:1px 4px;border-radius:4px;font-family:monospace;font-size:10px}
+
+.excel-import-summary{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.import-stat-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:20px;font-size:11px;font-weight:600}
+.import-stat-pill .dot{width:7px;height:7px;border-radius:50%}
+.import-stat-pill.new{background:#e6f4ea;color:#137333;border:1px solid #b7e1cd}
+.import-stat-pill.new .dot{background:#137333}
+.import-stat-pill.update{background:#e8f0fe;color:#1a73e8;border:1px solid #aecbfa}
+.import-stat-pill.update .dot{background:#1a73e8}
+
+.excel-import-options{background:#f8faf6;border:1px solid #e1e9df;border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;flex-direction:column;gap:8px}
+.radio-label{display:flex;align-items:start;gap:8px;font-size:11px;color:#334c41;cursor:pointer;font-weight:normal}
+.radio-label input{margin-top:2px;cursor:pointer}
+.radio-label span{line-height:1.5}
+
+.excel-preview-scroll{max-height:260px;overflow-y:auto;border:1px solid #dce4da;border-radius:8px;margin-bottom:12px;background:#fff}
+.excel-preview-table{width:100%;border-collapse:collapse;font-size:11px}
+.excel-preview-table th{position:sticky;top:0;background:#edf3eb;color:#355345;padding:8px 10px;text-align:left;font-weight:700;border-bottom:1px solid #d4dfd2;z-index:2}
+.excel-preview-table td{padding:7px 10px;border-bottom:1px solid #eef2ec;vertical-align:middle}
+.excel-preview-table tr.row-new{background:#fff}
+.excel-preview-table tr.row-update{background:#fbfcfe}
+.excel-preview-table tr:hover{background:#f2f7ef}
+
+.import-badge{display:inline-block;padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;letter-spacing:0.3px}
+.import-badge.new{background:#e6f4ea;color:#137333;border:1px solid #b7e1cd}
+.import-badge.update{background:#e8f0fe;color:#1a73e8;border:1px solid #aecbfa}
