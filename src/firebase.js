@@ -14,12 +14,12 @@ import {
   updateDoc,
   deleteDoc,
   collection,
-  query,
-  where,
   onSnapshot,
-  getDocFromServer
+  getDocFromServer,
+  runTransaction
 } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
+import { isQuotaExhaustedError } from './core.js';
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
@@ -27,6 +27,24 @@ export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+let quotaExhausted = false;
+
+export function isQuotaExhausted() {
+  return quotaExhausted;
+}
+
+export function setQuotaExhausted(val = true) {
+  quotaExhausted = Boolean(val);
+}
+
+export function checkAndFlagQuotaError(error) {
+  if (isQuotaExhaustedError(error)) {
+    quotaExhausted = true;
+    return true;
+  }
+  return false;
+}
 
 export const OperationType = {
   CREATE: 'create',
@@ -38,6 +56,8 @@ export const OperationType = {
 };
 
 export function handleFirestoreError(error, operationType, path) {
+  checkAndFlagQuotaError(error);
+
   const errInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -63,6 +83,7 @@ export async function testConnection() {
   try {
     await getDocFromServer(doc(db, 'timetables', 'published'));
   } catch (error) {
+    checkAndFlagQuotaError(error);
     if (error instanceof Error && error.message.includes('the client is offline')) {
       console.warn('Firebase client is offline. Checking network...');
     }
@@ -79,7 +100,7 @@ export {
   updateDoc,
   deleteDoc,
   collection,
-  query,
-  where,
-  onSnapshot
+  onSnapshot,
+  runTransaction
 };
+

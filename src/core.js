@@ -386,25 +386,10 @@ export function normalizeState(state) {
 
   state.activeVersion = state.activeVersion || 'draft';
 
-  if (state.school) {
-    if (!state.school.currentWeek) {
-      state.school.currentWeek = 'Tuần 8';
-    }
-    if (!state.school.weekDates) {
-      state.school.weekDates = '05/10 - 09/10/2026';
-    }
-  }
-
   if (Array.isArray(state.classes)) {
     for (const c of state.classes) {
       if (c.homeroomTeacherId === undefined) {
         c.homeroomTeacherId = null;
-      }
-      if (!c.weekInfo) {
-        c.weekInfo = {
-          week: state.school?.currentWeek || 'Tuần 8',
-          dates: state.school?.weekDates || '05/10 - 09/10/2026'
-        };
       }
     }
   }
@@ -1012,3 +997,218 @@ export const TEACHER_TEMPLATE_ROWS = [
   { 'STT': 5, 'Mã GV': 'GV05', 'Họ và tên': 'Vũ Đức Giang', 'Số điện thoại': '0945678901', 'Email': 'giang.vu@truong.edu.vn', 'Ghi chú / Môn dạy': 'Hóa học' },
   { 'STT': 6, 'Mã GV': '', 'Họ và tên': 'Đặng Thu Hà (Tự sinh mã)', 'Số điện thoại': '0978901234', 'Email': 'ha.dang@truong.edu.vn', 'Ghi chú / Môn dạy': 'Sinh học' }
 ];
+
+export function areTimetablesContentEqual(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+
+  // 1. School
+  const sa = a.school || {};
+  const sb = b.school || {};
+  if (
+    (sa.name || '').trim() !== (sb.name || '').trim() ||
+    (sa.year || '').trim() !== (sb.year || '').trim() ||
+    (sa.term || '').trim() !== (sb.term || '').trim()
+  ) {
+    return false;
+  }
+
+  // 2. Classes
+  const ca = a.classes || [];
+  const cb = b.classes || [];
+  if (ca.length !== cb.length) return false;
+  const mapClassesA = new Map(ca.map(c => [c.id, c]));
+  for (const c of cb) {
+    const match = mapClassesA.get(c.id);
+    if (!match) return false;
+    if (
+      match.code !== c.code ||
+      match.name !== c.name ||
+      Number(match.grade) !== Number(c.grade) ||
+      (match.homeroomTeacherId || null) !== (c.homeroomTeacherId || null) ||
+      (match.coHomeroomTeacherId || null) !== (c.coHomeroomTeacherId || null)
+    ) {
+      return false;
+    }
+  }
+
+  // 3. Subjects
+  const subA = a.subjects || [];
+  const subB = b.subjects || [];
+  if (subA.length !== subB.length) return false;
+  const mapSubA = new Map(subA.map(s => [s.id, s]));
+  for (const s of subB) {
+    const match = mapSubA.get(s.id);
+    if (!match) return false;
+    if (
+      match.code !== s.code ||
+      match.name !== s.name ||
+      (match.color || '') !== (s.color || '')
+    ) {
+      return false;
+    }
+  }
+
+  // 4. Teachers
+  const teaA = a.teachers || [];
+  const teaB = b.teachers || [];
+  if (teaA.length !== teaB.length) return false;
+  const mapTeaA = new Map(teaA.map(t => [t.id, t]));
+  for (const t of teaB) {
+    const match = mapTeaA.get(t.id);
+    if (!match) return false;
+    const matchName = match.fullName || match.name || '';
+    const tName = t.fullName || t.name || '';
+    if (
+      match.code !== t.code ||
+      matchName !== tName ||
+      (match.phone || '') !== (t.phone || '') ||
+      (match.note || '') !== (t.note || '')
+    ) {
+      return false;
+    }
+    const asgnA = (match.assignments || []).map(as => `${as.classId}::${as.subjectId}`).sort().join('|');
+    const asgnB = (t.assignments || []).map(as => `${as.classId}::${as.subjectId}`).sort().join('|');
+    if (asgnA !== asgnB) return false;
+  }
+
+  // 5. Timetable cells
+  const cellsA = a.timetableCells || [];
+  const cellsB = b.timetableCells || [];
+  if (cellsA.length !== cellsB.length) return false;
+  const mapCellsA = new Map(cellsA.map(c => [`${c.classId}::${c.timeSlotId}`, c]));
+  for (const c of cellsB) {
+    const match = mapCellsA.get(`${c.classId}::${c.timeSlotId}`);
+    if (!match) return false;
+    if (
+      match.subjectId !== c.subjectId ||
+      (match.teacherId || '') !== (c.teacherId || '') ||
+      Boolean(match.locked) !== Boolean(c.locked) ||
+      (match.note || '').trim() !== (c.note || '').trim()
+    ) {
+      return false;
+    }
+  }
+
+  // 6. Draft assignments
+  const daA = a.draftAssignments || [];
+  const daB = b.draftAssignments || [];
+  if (daA.length !== daB.length) return false;
+  const setDaA = new Set(daA.map(item => `${item.classId}::${item.subjectId}::${item.teacherId || ''}`));
+  for (const item of daB) {
+    if (!setDaA.has(`${item.classId}::${item.subjectId}::${item.teacherId || ''}`)) return false;
+  }
+
+  // 7. Draft schedule
+  const schA = a.draftSchedule || [];
+  const schB = b.draftSchedule || [];
+  if (schA.length !== schB.length) return false;
+  const keyOfSlot = c => c.timeSlotId ? `${c.classId}::${c.timeSlotId}` : `${c.classId}::${c.day}::${c.period}`;
+  const mapSchA = new Map(schA.map(c => [keyOfSlot(c), c]));
+  for (const c of schB) {
+    const match = mapSchA.get(keyOfSlot(c));
+    if (!match) return false;
+    if (
+      match.subjectId !== c.subjectId ||
+      (match.teacherId || '') !== (c.teacherId || '') ||
+      Boolean(match.locked) !== Boolean(c.locked) ||
+      (match.note || '').trim() !== (c.note || '').trim()
+    ) {
+      return false;
+    }
+  }
+
+  // 8. Published assignments & schedule
+  const paA = a.publishedAssignments || [];
+  const paB = b.publishedAssignments || [];
+  if (paA.length !== paB.length) return false;
+  const setPaA = new Set(paA.map(item => `${item.classId}::${item.subjectId}::${item.teacherId || ''}`));
+  for (const item of paB) {
+    if (!setPaA.has(`${item.classId}::${item.subjectId}::${item.teacherId || ''}`)) return false;
+  }
+
+  const psA = a.publishedSchedule || [];
+  const psB = b.publishedSchedule || [];
+  if (psA.length !== psB.length) return false;
+  const mapPsA = new Map(psA.map(c => [keyOfSlot(c), c]));
+  for (const c of psB) {
+    const match = mapPsA.get(keyOfSlot(c));
+    if (!match) return false;
+    if (
+      match.subjectId !== c.subjectId ||
+      (match.teacherId || '') !== (c.teacherId || '') ||
+      Boolean(match.locked) !== Boolean(c.locked) ||
+      (match.note || '').trim() !== (c.note || '').trim()
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function arePublishedContentEqual(existingPublishedData, newPublishedData) {
+  if (existingPublishedData === newPublishedData) return true;
+  if (!existingPublishedData || !newPublishedData) return false;
+  return areTimetablesContentEqual(existingPublishedData, newPublishedData);
+}
+
+export function areAvailabilitiesEqual(a, b) {
+  if (a === b) return true;
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  const availA = (a.availableSlotIds || []).slice().sort().join('|');
+  const availB = (b.availableSlotIds || []).slice().sort().join('|');
+  const busyA = (a.busySlotIds || []).slice().sort().join('|');
+  const busyB = (b.busySlotIds || []).slice().sort().join('|');
+  const dateA = (a.dateRange?.text || '').trim();
+  const dateB = (b.dateRange?.text || '').trim();
+  const noteA = (a.note || '').trim();
+  const noteB = (b.note || '').trim();
+  return availA === availB && busyA === busyB && dateA === dateB && noteA === noteB;
+}
+
+export function areUserProfilesEqual(existing, updated) {
+  if (existing === updated) return true;
+  if (!existing || !updated) return false;
+
+  if (updated.role !== undefined && (existing.role || '') !== updated.role) return false;
+  if (updated.displayName !== undefined && (existing.displayName || '').trim() !== (updated.displayName || '').trim()) return false;
+  if (updated.teacherId !== undefined && (existing.teacherId || '') !== (updated.teacherId || '')) return false;
+  if (updated.isVisiting !== undefined && Boolean(existing.isVisiting) !== Boolean(updated.isVisiting)) return false;
+  if (updated.active !== undefined && Boolean(existing.active) !== Boolean(updated.active)) return false;
+
+  if (updated.homeroomClassIds !== undefined) {
+    const hrA = (existing.homeroomClassIds || []).slice().sort().join('|');
+    const hrB = (updated.homeroomClassIds || []).slice().sort().join('|');
+    if (hrA !== hrB) return false;
+  }
+
+  if (updated.selfDeclared !== undefined) {
+    const subA = (existing.selfDeclared?.subjects || []).slice().sort().join('|');
+    const subB = (updated.selfDeclared?.subjects || []).slice().sort().join('|');
+    if (subA !== subB) return false;
+    const hrClsA = existing.selfDeclared?.homeroomClassId || '';
+    const hrClsB = updated.selfDeclared?.homeroomClassId || '';
+    if (hrClsA !== hrClsB) return false;
+    const noteA = (existing.selfDeclared?.note || '').trim();
+    const noteB = (updated.selfDeclared?.note || '').trim();
+    if (noteA !== noteB) return false;
+  }
+
+  return true;
+}
+
+export function isQuotaExhaustedError(err) {
+  if (!err) return false;
+  const code = String(err.code || '').toLowerCase();
+  const msg = String(err.message || err || '').toLowerCase();
+  return (
+    code === 'resource-exhausted' ||
+    msg.includes('resource-exhausted') ||
+    msg.includes('quota exceeded') ||
+    msg.includes('quota_exceeded') ||
+    msg.includes('vượt hạn mức')
+  );
+}
+

@@ -1,5 +1,4 @@
 import * as XLSX from 'xlsx';
-import html2canvas from 'html2canvas';
 import { SEED } from './seed.js';
 import {
   uid,
@@ -28,7 +27,12 @@ import {
   publishDraft,
   restoreDraftFromPublished,
   assignLessonToScheduleCell,
-  removeLessonFromScheduleCell
+  removeLessonFromScheduleCell,
+  areTimetablesContentEqual,
+  arePublishedContentEqual,
+  areAvailabilitiesEqual,
+  areUserProfilesEqual,
+  isQuotaExhaustedError
 } from './core.js';
 import {
   auth,
@@ -43,12 +47,14 @@ import {
   updateDoc,
   deleteDoc,
   collection,
-  query as fsQuery,
-  where,
   onSnapshot,
   handleFirestoreError,
   OperationType,
-  testConnection
+  testConnection,
+  runTransaction,
+  isQuotaExhausted,
+  setQuotaExhausted,
+  checkAndFlagQuotaError
 } from './firebase.js';
 
 const KEY = 'TKB_NEW_V1';
@@ -61,6 +67,11 @@ let state = normalizeState(clone(SEED));
 let workingDraft = normalizeState(clone(SEED));
 let publishedTimetable = null;
 let currentRevision = 1;
+let serverConfirmedWorking = null;
+let serverConfirmedAvailability = null;
+let isSavingWorking = false;
+let isGlobalSaving = false;
+
 
 // Publishing Engine & Environment State
 let activeVersion = 'draft'; // 'draft' | 'published'
@@ -83,8 +94,6 @@ let showPublished = false;
 
 // Sub-view specific filters
 let selectedHomeroomClassId = '';
-let studentSelectedClassId = '';
-let studentGradeFilter = ''; // '' (Tất cả) | 'THCS' | 'THPT' | '6'..'12'
 let personalViewMode = 'week'; // 'week' | 'day'
 
 // Auth & Permissions
@@ -141,8 +150,7 @@ export const titles = {
   backup: 'Sao lưu & Khôi phục',
   school: 'Thông tin nhà trường',
   homeroom_overview: 'Tổng quan lớp chủ nhiệm',
-  homeroom_class: 'Thời khóa biểu lớp chủ nhiệm (VA Schools)',
-  student_timetable: 'Thời khóa biểu học sinh (VA Schools)',
+  homeroom_class: 'Thời khóa biểu lớp chủ nhiệm',
   my_teaching: 'Lịch giảng dạy của tôi',
   published_all: 'Thời khóa biểu toàn trường đã chốt',
   visiting_overview: 'Tổng quan giáo viên thỉnh giảng',
@@ -241,31 +249,86 @@ async function syncWorkingToCloud(nextState) {
     toast('Chỉ Người xếp lịch hoặc Quản trị viên mới được cập nhật bản nháp.');
     return false;
   }
-  setSync('saving', 'Đang lưu lên Cloud...');
+  if (isQuotaExhausted()) {
+    setSync('error', 'Hết hạn mức Cloud (Resource Exhausted)');
+    toast('Hệ thống đã đạt hạn mức ghi Firestore (resource-exhausted). Đã dừng mọi thao tác ghi mới trong phiên này. Vui lòng tải sao lưu JSON.');
+    render();
+    return false;
+  }
+  if (isSavingWorking) {
+    return false;
+  }
+  isSavingWorking = true;
+  setSync('saving', 'Đang kiểm tra và lưu Cloud...');
   try {
     validateState(nextState);
     const normalized = normalizeState(nextState);
-    const revision = (currentRevision || 0) + 1;
-    const payload = {
-      revision,
-      school: normalized.school,
-      classes: normalized.classes,
-      subjects: normalized.subjects,
-      teachers: normalized.teachers,
-      timeSlots: normalized.timeSlots,
-      timetableCells: normalized.timetableCells,
-      draftAssignments: normalized.draftAssignments || [],
-      draftSchedule: normalized.draftSchedule || [],
-      publishedAssignments: normalized.publishedAssignments || [],
-      publishedSchedule: normalized.publishedSchedule || [],
-      lastPublishedAt: normalized.lastPublishedAt || null,
-      activeVersion: normalized.activeVersion || activeVersion,
-      versions: normalized.versions || [],
-      updatedAt: new Date().toISOString(),
-      updatedBy: currentUser?.email || 'admin'
-    };
-    await setDoc(doc(db, 'timetables', 'working'), payload);
-    currentRevision = revision;
+
+    // 4. So sánh với dữ liệu máy chủ đã xác nhận. Nếu không đổi thì bỏ qua; 0 lần ghi!
+    if (serverConfirmedWorking && areTimetablesContentEqual(serverConfirmedWorking, normalized)) {
+      workingDraft = normalized;
+      if (activeVersion === 'draft') {
+        state = clone(normalized);
+      } else {
+        state = clone(displayed());
+      }
+      setSync('idle', 'Đã lưu Cloud (không đổi)');
+      return true;
+    }
+
+    // 8. Dùng transaction kiểm tra revision khi lưu lịch để tránh hai người ghi đè dữ liệu của nhau
+    const result = await runTransaction(db, async transaction => {
+      const workingDocRef = doc(db, 'timetables', 'working');
+      const sfDoc = await transaction.get(workingDocRef);
+      let baseRevision = 0;
+      if (sfDoc.exists()) {
+        const serverData = sfDoc.data();
+        baseRevision = serverData.revision || 0;
+        if (currentRevision && serverData.revision > currentRevision) {
+          throw new Error(`Xung đột phiên bản: Dữ liệu trên Cloud (Revision ${serverData.revision}) mới hơn phiên bản của bạn (${currentRevision}). Hãy tải lại trang để tránh ghi đè lịch của người khác.`);
+        }
+        const serverNormalized = normalizeState(serverData);
+        if (areTimetablesContentEqual(serverNormalized, normalized)) {
+          return { skipped: true, revision: serverData.revision, serverData: serverNormalized };
+        }
+      }
+
+      const revision = (baseRevision || currentRevision || 0) + 1;
+      const payload = {
+        revision,
+        school: normalized.school,
+        classes: normalized.classes,
+        subjects: normalized.subjects,
+        teachers: normalized.teachers,
+        timeSlots: normalized.timeSlots,
+        timetableCells: normalized.timetableCells,
+        draftAssignments: normalized.draftAssignments || [],
+        draftSchedule: normalized.draftSchedule || [],
+        publishedAssignments: normalized.publishedAssignments || [],
+        publishedSchedule: normalized.publishedSchedule || [],
+        lastPublishedAt: normalized.lastPublishedAt || null,
+        activeVersion: normalized.activeVersion || activeVersion,
+        versions: normalized.versions || [],
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser?.email || 'admin'
+      };
+
+      transaction.set(workingDocRef, payload);
+      return { skipped: false, revision, payload };
+    });
+
+    if (result.skipped) {
+      serverConfirmedWorking = clone(result.serverData || normalized);
+      currentRevision = result.revision;
+      workingDraft = normalized;
+      if (activeVersion === 'draft') state = clone(normalized);
+      else state = clone(displayed());
+      setSync('idle', 'Đã lưu Cloud (không đổi)');
+      return true;
+    }
+
+    currentRevision = result.revision;
+    serverConfirmedWorking = clone(normalized);
     workingDraft = normalized;
     if (activeVersion === 'draft') {
       state = clone(normalized);
@@ -275,20 +338,54 @@ async function syncWorkingToCloud(nextState) {
     setSync('idle', 'Đã lưu Cloud');
     return true;
   } catch (error) {
+    if (checkAndFlagQuotaError(error)) {
+      setSync('error', 'Hết hạn mức Cloud (Resource Exhausted)');
+      toast('Hệ thống đã đạt hạn mức ghi Firestore (resource-exhausted). Đã dừng mọi thao tác ghi mới trong phiên này. Hãy tải sao lưu JSON.');
+      render();
+      return false;
+    }
     handleFirestoreError(error, OperationType.WRITE, 'timetables/working');
     setSync('error', 'Lỗi lưu: ' + error.message);
     toast('Lỗi lưu Cloud: ' + error.message);
     return false;
+  } finally {
+    isSavingWorking = false;
   }
 }
 
 async function publishToCloud() {
   if (!isSchedulerRole()) return;
+  if (isQuotaExhausted()) {
+    toast('Hạn mức ghi Firestore đã hết (resource-exhausted). Không thể chốt lịch.');
+    return;
+  }
   const conflicts = findConflicts(workingDraft);
   if (conflicts.length) {
     toast('Còn lịch trùng giáo viên. Vui lòng xử lý trước khi chốt.');
     return;
   }
+
+  const dataToPublish = {
+    school: workingDraft.school,
+    classes: workingDraft.classes,
+    subjects: workingDraft.subjects,
+    teachers: workingDraft.teachers,
+    timeSlots: workingDraft.timeSlots,
+    timetableCells: workingDraft.timetableCells,
+    draftAssignments: workingDraft.draftAssignments || [],
+    draftSchedule: workingDraft.draftSchedule || [],
+    publishedAssignments: workingDraft.publishedAssignments || [],
+    publishedSchedule: workingDraft.publishedSchedule || []
+  };
+
+  // 6. Không công bố lại lịch giống bản đã công bố: 0 ghi!
+  if (publishedTimetable && publishedTimetable.isPublished && publishedTimetable.data) {
+    if (arePublishedContentEqual(publishedTimetable.data, dataToPublish)) {
+      toast('Thời khóa biểu hiện tại giống hệt bản đã chốt trên Cloud. Không cần ghi lại.');
+      return;
+    }
+  }
+
   if (!confirm('Chốt bản đang xếp? Toàn trường và các giáo viên sẽ xem được bản này.')) return;
 
   setSync('saving', 'Đang chốt lịch...');
@@ -298,19 +395,19 @@ async function publishToCloud() {
       name: `Bản chốt ${fmt(new Date())}`,
       publishedAt: new Date().toISOString(),
       publishedBy: currentUser?.email || 'admin',
-      data: {
-        school: workingDraft.school,
-        classes: workingDraft.classes,
-        subjects: workingDraft.subjects,
-        teachers: workingDraft.teachers,
-        timeSlots: workingDraft.timeSlots,
-        timetableCells: workingDraft.timetableCells
-      }
+      data: dataToPublish
     };
     await setDoc(doc(db, 'timetables', 'published'), payload);
+    publishedTimetable = payload;
     setSync('idle', 'Đã chốt lịch thành công');
     toast('Đã chốt lịch toàn trường lên Cloud.');
   } catch (error) {
+    if (checkAndFlagQuotaError(error)) {
+      setSync('error', 'Hết hạn mức Cloud (Resource Exhausted)');
+      toast('Hạn mức Firestore đã hết. Hãy tải sao lưu JSON.');
+      render();
+      return;
+    }
     handleFirestoreError(error, OperationType.WRITE, 'timetables/published');
     setSync('error', 'Lỗi chốt lịch');
   }
@@ -318,6 +415,15 @@ async function publishToCloud() {
 
 async function unpublishFromCloud() {
   if (!isSchedulerRole()) return;
+  if (isQuotaExhausted()) {
+    toast('Hạn mức ghi Firestore đã hết (resource-exhausted). Không thể gỡ chốt.');
+    return;
+  }
+  // 6. Không ghi lại nếu đã gỡ chốt trước đó: 0 ghi!
+  if (!publishedTimetable || !publishedTimetable.isPublished) {
+    toast('Thời khóa biểu hiện chưa được công bố hoặc đã gỡ trước đó.');
+    return;
+  }
   if (!confirm('Gỡ bản đã chốt? Toàn trường sẽ không thấy lịch cho đến khi chốt lại.')) return;
 
   setSync('saving', 'Đang gỡ bản chốt...');
@@ -329,11 +435,17 @@ async function unpublishFromCloud() {
       publishedBy: currentUser?.email || 'admin',
       data: null
     });
+    publishedTimetable = null;
     setSync('idle', 'Đã gỡ bản chốt');
     toast('Đã gỡ bản đã chốt.');
     showPublished = false;
     render();
   } catch (error) {
+    if (checkAndFlagQuotaError(error)) {
+      setSync('error', 'Hết hạn mức Cloud (Resource Exhausted)');
+      render();
+      return;
+    }
     handleFirestoreError(error, OperationType.WRITE, 'timetables/published');
     setSync('error', 'Lỗi gỡ chốt');
   }
@@ -380,45 +492,43 @@ function initDataSubscriptions() {
   if (isSchedulerRole()) {
     unsubWorking = onSnapshot(
       doc(db, 'timetables', 'working'),
-      async snap => {
+      snap => {
+        // 3. Không tự tạo bản nháp khi mở trang. Chỉ lưu khi người dùng chủ động thay đổi dữ liệu: 0 ghi!
         if (!snap.exists()) {
-          try {
-            await setDoc(doc(db, 'timetables', 'working'), {
-              revision: 1,
-              school: SEED.school,
-              classes: SEED.classes,
-              subjects: SEED.subjects,
-              teachers: SEED.teachers,
-              timeSlots: SEED.timeSlots,
-              timetableCells: SEED.timetableCells,
-              versions: [],
-              updatedAt: new Date().toISOString(),
-              updatedBy: currentUser?.email || 'admin'
-            });
-          } catch (initErr) {
-            console.warn('Working timetable init error:', initErr);
+          currentRevision = 0;
+          serverConfirmedWorking = null;
+          workingDraft = normalizeState(clone(SEED));
+          if (!showPublished && (currentWorkspace === 'ADMIN' || currentWorkspace === 'SCHEDULER')) {
+            state = clone(workingDraft);
           }
+          setSync('idle', 'Dùng bản mẫu (chưa lưu Cloud)');
+          render();
           return;
         }
+
         const data = snap.data();
         currentRevision = data.revision || 1;
         const rawCells = data.timetableCells || [];
         const cleanedCells = filterRemovedFixedCells(rawCells);
-        const hadOldCells = cleanedCells.length !== rawCells.length;
 
-        workingDraft = normalizeState({
+        // Lưu bản ghi nhận dạng chuẩn từ server để so sánh trước khi ghi
+        serverConfirmedWorking = normalizeState({
           school: data.school || SEED.school,
           classes: data.classes || [],
           subjects: data.subjects || [],
           teachers: data.teachers || [],
           timeSlots: data.timeSlots || SEED.timeSlots,
           timetableCells: cleanedCells,
+          draftAssignments: data.draftAssignments || [],
+          draftSchedule: data.draftSchedule || [],
+          publishedAssignments: data.publishedAssignments || [],
+          publishedSchedule: data.publishedSchedule || [],
+          activeVersion: data.activeVersion || 'draft',
           versions: data.versions || []
         });
 
-        if (hadOldCells && canEditWorking()) {
-          syncWorkingToCloud(workingDraft).catch(console.error);
-        }
+        // 2. Bỏ thao tác tự ghi trong onSnapshot. Đọc dữ liệu, lọc ô cũ, chuẩn hóa và render: 0 ghi!
+        workingDraft = clone(serverConfirmedWorking);
 
         if (!showPublished && (currentWorkspace === 'ADMIN' || currentWorkspace === 'SCHEDULER')) {
           state = clone(workingDraft);
@@ -427,6 +537,11 @@ function initDataSubscriptions() {
         render();
       },
       err => {
+        if (checkAndFlagQuotaError(err)) {
+          setSync('error', 'Hết hạn mức Cloud (Resource Exhausted)');
+          render();
+          return;
+        }
         handleFirestoreError(err, OperationType.GET, 'timetables/working');
         setSync('error', 'Lỗi đồng bộ nháp');
       }
@@ -442,27 +557,34 @@ function initDataSubscriptions() {
         accountsList.sort((a, b) => a.email.localeCompare(b.email));
         render();
       },
-      err => handleFirestoreError(err, OperationType.LIST, 'users')
+      err => {
+        if (checkAndFlagQuotaError(err)) {
+          setSync('error', 'Hết hạn mức Cloud');
+          render();
+          return;
+        }
+        handleFirestoreError(err, OperationType.LIST, 'users');
+      }
     );
   }
 
   // 4. Requests listener (Schedulers read all, Teachers read their own)
-  if (currentUser?.email) {
-    const userMail = currentUser.email.toLowerCase().trim();
-    const reqRef = isSchedulerRole()
-      ? collection(db, 'requests')
-      : fsQuery(collection(db, 'requests'), where('teacherEmail', '==', userMail));
-
-    unsubRequests = onSnapshot(
-      reqRef,
-      snap => {
-        requestsList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        requestsList.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  unsubRequests = onSnapshot(
+    collection(db, 'requests'),
+    snap => {
+      requestsList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      requestsList.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+      render();
+    },
+    err => {
+      if (checkAndFlagQuotaError(err)) {
+        setSync('error', 'Hết hạn mức Cloud');
         render();
-      },
-      err => handleFirestoreError(err, OperationType.LIST, 'requests')
-    );
-  }
+        return;
+      }
+      handleFirestoreError(err, OperationType.LIST, 'requests');
+    }
+  );
 
   // 5. Visiting Availability listener
   if (currentUser?.email) {
@@ -470,9 +592,17 @@ function initDataSubscriptions() {
       doc(db, 'availabilities', currentUser.email.toLowerCase()),
       snap => {
         availabilityDoc = snap.exists() ? snap.data() : null;
+        serverConfirmedAvailability = availabilityDoc ? clone(availabilityDoc) : null;
         render();
       },
-      err => handleFirestoreError(err, OperationType.GET, `availabilities/${currentUser.email}`)
+      err => {
+        if (checkAndFlagQuotaError(err)) {
+          setSync('error', 'Hết hạn mức Cloud');
+          render();
+          return;
+        }
+        handleFirestoreError(err, OperationType.GET, `availabilities/${currentUser.email}`);
+      }
     );
   }
 }
@@ -494,8 +624,8 @@ function handleAuthState() {
 
     const email = (user.email || '').toLowerCase().trim();
 
-    // Bootstrap OWNER if matching email
-    if (email === OWNER_EMAIL) {
+    // Bootstrap OWNER if matching email and quota not exhausted
+    if (email === OWNER_EMAIL && !isQuotaExhausted()) {
       try {
         const uDoc = await getDoc(doc(db, 'users', email));
         if (!uDoc.exists()) {
@@ -509,6 +639,7 @@ function handleAuthState() {
           });
         }
       } catch (e) {
+        checkAndFlagQuotaError(e);
         console.warn('Owner bootstrap check:', e);
       }
     }
@@ -617,7 +748,6 @@ function renderAdminWorkspace() {
   const adminMenu = [
     ['overview', '📊', 'Tổng quan'],
     ['matrix', '▦', 'Thời khóa biểu toàn trường'],
-    ['student_timetable', '🎓', 'TKB Học sinh (VA Schools)'],
     ['catalog', '▤', 'Danh mục (Lớp/Môn/GV)'],
     ['accounts', '👥', 'Quản lý tài khoản & Quyền'],
     ['pending', '📋', `Hồ sơ GV chờ xác nhận ${pendingProfiles.length ? `<b class="badge">${pendingProfiles.length}</b>` : ''}`],
@@ -691,7 +821,6 @@ function renderAdminWorkspace() {
         `;
       }
       if (view === 'matrix') return renderMatrixSection(s);
-      if (view === 'student_timetable') return renderStudentTimetableView();
       if (view === 'catalog') return catalog();
       if (view === 'accounts') return accountsPage();
       if (view === 'pending') return renderPendingProfilesPage(pendingProfiles);
@@ -713,7 +842,6 @@ function renderSchedulerWorkspace() {
 
   const schedulerMenu = [
     ['matrix', '▦', 'Ma trận toàn trường'],
-    ['student_timetable', '🎓', 'TKB Học sinh (VA Schools)'],
     ['conflicts', '◎', `Kiểm tra xung đột ${conflicts.length ? `<b class="badge">${conflicts.length}</b>` : ''}`],
     ['catalog', '▤', 'Danh mục phục vụ xếp lịch'],
     ['teacher_requests', '📩', `Lịch bận & Yêu cầu ${requestsList.filter(r => r.status === 'PENDING').length ? `<b class="badge">${requestsList.filter(r => r.status === 'PENDING').length}</b>` : ''}`],
@@ -725,7 +853,6 @@ function renderSchedulerWorkspace() {
     menu: schedulerMenu,
     content: () => {
       if (view === 'matrix') return renderMatrixSection(s);
-      if (view === 'student_timetable') return renderStudentTimetableView();
       if (view === 'conflicts') return conflictPage();
       if (view === 'catalog') return catalog();
       if (view === 'teacher_requests') return renderSchedulerTeacherRequests();
@@ -838,7 +965,6 @@ function renderVisitingWorkspace() {
 
   const visitingMenu = [
     ['visiting_overview', '⚡', 'Tổng quan thỉnh giảng'],
-    ['student_timetable', '🎓', 'TKB Học sinh (VA Schools)'],
     ['my_teaching', '◷', 'Lịch giảng dạy của tôi'],
     ['availability', '📅', 'Đăng ký thời gian có thể dạy'],
     ['submit_request', '✉️', `Báo bận / Đổi lịch ${myRequests.filter(r => r.status === 'PENDING').length ? `<b class="badge">${myRequests.filter(r => r.status === 'PENDING').length}</b>` : ''}`],
@@ -895,7 +1021,6 @@ function renderVisitingWorkspace() {
           </div>
         `;
       }
-      if (view === 'student_timetable') return renderStudentTimetableView();
       if (view === 'my_teaching') return renderMyTeachingView();
       if (view === 'availability') return renderAvailabilityView();
       if (view === 'submit_request') return renderTeacherRequestSubmission();
@@ -911,7 +1036,6 @@ function renderVisitingWorkspace() {
 function renderRegularTeacherWorkspace() {
   const teacherMenu = [
     ['my_teaching', '◷', 'Lịch giảng dạy của tôi'],
-    ['student_timetable', '🎓', 'TKB Học sinh (VA Schools)'],
     ['published_all', '▦', 'TKB toàn trường đã chốt'],
     ['submit_request', '✉️', 'Gửi yêu cầu điều chỉnh'],
     ['profile', '👤', 'Hồ sơ của tôi']
@@ -921,7 +1045,6 @@ function renderRegularTeacherWorkspace() {
     menu: teacherMenu,
     content: () => {
       if (view === 'my_teaching') return renderMyTeachingView();
-      if (view === 'student_timetable') return renderStudentTimetableView();
       if (view === 'published_all') return renderMatrixSection(displayed());
       if (view === 'submit_request') return renderTeacherRequestSubmission();
       if (view === 'profile') return renderMyProfileView();
@@ -931,304 +1054,93 @@ function renderRegularTeacherWorkspace() {
 }
 
 // ----------------------------------------------------
-// Sub-view: Thời khóa biểu học sinh (Mẫu VA Schools #8C0D36)
+// Sub-view: TKB Lớp chủ nhiệm
 // ----------------------------------------------------
-function renderStudentTimetableView(forcedClassId = '', limitClasses = null) {
-  const allClasses = (limitClasses && limitClasses.length) ? limitClasses : (workingDraft.classes || state.classes || []);
-  if (!allClasses.length) {
-    return '<div class="alert">Không có dữ liệu lớp học nào.</div>';
-  }
-
-  // Filter classes by grade filter
-  let filteredClasses = allClasses;
-  if (studentGradeFilter === 'THCS') {
-    filteredClasses = allClasses.filter(c => c.grade >= 6 && c.grade <= 9);
-  } else if (studentGradeFilter === 'THPT') {
-    filteredClasses = allClasses.filter(c => c.grade >= 10 && c.grade <= 12);
-  } else if (studentGradeFilter) {
-    const gNum = Number(studentGradeFilter);
-    if (!isNaN(gNum)) {
-      filteredClasses = allClasses.filter(c => c.grade === gNum);
-    }
-  }
-
-  if (!filteredClasses.length) {
-    filteredClasses = allClasses;
-  }
-
-  // Determine active class
-  let currentClass;
-  if (forcedClassId) {
-    currentClass = allClasses.find(c => c.id === forcedClassId) || filteredClasses[0];
-  } else if (studentSelectedClassId) {
-    currentClass = filteredClasses.find(c => c.id === studentSelectedClassId) || allClasses.find(c => c.id === studentSelectedClassId) || filteredClasses[0];
-  } else {
-    currentClass = filteredClasses[0];
-  }
-  studentSelectedClassId = currentClass.id;
-  if (forcedClassId) {
-    selectedHomeroomClassId = forcedClassId;
-  }
-
-  // Homeroom teacher
-  const homeroomTeacher = (workingDraft.teachers || state.teachers || []).find(t => t.id === currentClass.homeroomTeacherId);
-  const homeroomTeacherName = homeroomTeacher?.fullName || homeroomTeacher?.name || 'Chưa phân công';
-
-  // Week and Dates info
-  const weekInfo = currentClass.weekInfo || {};
-  const currentWeek = weekInfo.week || workingDraft.school?.currentWeek || state.school?.currentWeek || 'Tuần 8';
-  const weekDates = weekInfo.dates || workingDraft.school?.weekDates || state.school?.weekDates || '05/10 - 09/10/2026';
-
-  // Permissions for editing week & dates
-  const canEdit = isAdmin() || isSchedulerRole() || (isHomeroomTeacher() && currentUserProfile?.homeroomClassIds?.includes(currentClass.id));
-
-  // Data source:
-  const isViewingPublished = activeVersion === 'published';
-  let activeCells = [];
-  if (isViewingPublished && workingDraft.publishedSchedule && workingDraft.publishedSchedule.length > 0) {
-    activeCells = workingDraft.publishedSchedule;
-  } else if (isViewingPublished && publishedTimetable?.data?.timetableCells?.length > 0) {
-    activeCells = publishedTimetable.data.timetableCells;
-  } else if (workingDraft.draftSchedule && workingDraft.draftSchedule.length > 0) {
-    activeCells = workingDraft.draftSchedule;
-  } else {
-    activeCells = workingDraft.timetableCells || state.timetableCells || [];
-  }
-
-  const timeSlots = workingDraft.timeSlots || state.timeSlots || [];
-  const subjects = workingDraft.subjects || state.subjects || [];
-  const teachers = workingDraft.teachers || state.teachers || [];
-
-  function getLesson(dayOfWeek, session, sessionPeriod) {
-    const globalPeriod = session === 'MORNING' ? sessionPeriod : sessionPeriod + 5;
-    const slot = timeSlots.find(s => s.dayOfWeek === dayOfWeek && s.globalPeriod === globalPeriod);
-    const cell = activeCells.find(c => {
-      if (c.classId !== currentClass.id) return false;
-      if (slot && c.timeSlotId && c.timeSlotId === slot.id) return true;
-      if (c.period === sessionPeriod && (c.day === `Thứ ${dayOfWeek}` || c.day === ['','','Hai','Ba','Tư','Năm','Sáu'][dayOfWeek] || (slot && c.day === slot.dayName))) return true;
-      return false;
-    });
-
-    if (!cell) return { cell: null, slot };
-    const subject = subjects.find(s => s.id === cell.subjectId);
-    const teacher = teachers.find(t => t.id === cell.teacherId);
-    return { cell, slot, subject, teacher };
-  }
-
-  // Morning rows (1 to 5)
-  const morningTimes = [
-    { period: 1, time: '07:30 - 08:15' },
-    { period: 2, time: '08:20 - 09:05' },
-    { period: 3, time: '09:20 - 10:05' },
-    { period: 4, time: '10:10 - 10:55' },
-    { period: 5, time: '11:00 - 11:45' }
-  ];
-
-  let morningRowsHtml = '';
-  morningTimes.forEach((mt, idx) => {
-    morningRowsHtml += `<tr>`;
-    if (idx === 0) {
-      morningRowsHtml += `
-        <th rowspan="5" class="va-session-th va-session-morning">
-          <div style="writing-mode:vertical-rl;transform:rotate(180deg);margin:auto;font-weight:900;letter-spacing:2px;font-size:12px;">SÁNG</div>
-        </th>
-      `;
-    }
-    morningRowsHtml += `
-      <th class="va-period-th">${mt.period}</th>
-      <td class="va-time-td">${mt.time.split(' - ')[0]}<br><span>${mt.time.split(' - ')[1]}</span></td>
-    `;
-    for (let day = 2; day <= 6; day++) {
-      const { cell, subject, teacher } = getLesson(day, 'MORNING', mt.period);
-      if (cell && subject) {
-        const color = subject.color || '#8C0D36';
-        const teacherName = teacher?.fullName || teacher?.name || '';
-        morningRowsHtml += `
-          <td class="va-lesson-cell">
-            <div class="va-cell-box" style="--subj-color:${esc(color)};">
-              <strong class="va-subject-title" title="${esc(subject.name)}">${esc(subject.name)}</strong>
-              ${teacherName ? `<span class="va-teacher-label" title="${esc(teacherName)}">GV: ${esc(teacherName)}</span>` : '<span class="va-teacher-label" style="opacity:0.6;">Chưa xếp GV</span>'}
-              ${cell.note ? `<small class="va-cell-note-tag" title="${esc(cell.note)}">${esc(cell.note)}</small>` : ''}
-            </div>
-          </td>
-        `;
-      } else {
-        morningRowsHtml += `<td class="va-lesson-cell"><span class="va-cell-empty-mark">—</span></td>`;
-      }
-    }
-    morningRowsHtml += `</tr>`;
-  });
-
-  // Afternoon rows (1 to 4)
-  const afternoonTimes = [
-    { period: 1, time: '13:30 - 14:15' },
-    { period: 2, time: '14:20 - 15:05' },
-    { period: 3, time: '15:20 - 16:05' },
-    { period: 4, time: '16:10 - 16:55' }
-  ];
-
-  let afternoonRowsHtml = '';
-  afternoonTimes.forEach((at, idx) => {
-    afternoonRowsHtml += `<tr>`;
-    if (idx === 0) {
-      afternoonRowsHtml += `
-        <th rowspan="4" class="va-session-th va-session-afternoon">
-          <div style="writing-mode:vertical-rl;transform:rotate(180deg);margin:auto;font-weight:900;letter-spacing:2px;font-size:12px;">CHIỀU</div>
-        </th>
-      `;
-    }
-    afternoonRowsHtml += `
-      <th class="va-period-th">${at.period}</th>
-      <td class="va-time-td">${at.time.split(' - ')[0]}<br><span>${at.time.split(' - ')[1]}</span></td>
-    `;
-    for (let day = 2; day <= 6; day++) {
-      const { cell, subject, teacher } = getLesson(day, 'AFTERNOON', at.period);
-      if (cell && subject) {
-        const color = subject.color || '#8C0D36';
-        const teacherName = teacher?.fullName || teacher?.name || '';
-        afternoonRowsHtml += `
-          <td class="va-lesson-cell">
-            <div class="va-cell-box" style="--subj-color:${esc(color)};">
-              <strong class="va-subject-title" title="${esc(subject.name)}">${esc(subject.name)}</strong>
-              ${teacherName ? `<span class="va-teacher-label" title="${esc(teacherName)}">GV: ${esc(teacherName)}</span>` : '<span class="va-teacher-label" style="opacity:0.6;">Chưa xếp GV</span>'}
-              ${cell.note ? `<small class="va-cell-note-tag" title="${esc(cell.note)}">${esc(cell.note)}</small>` : ''}
-            </div>
-          </td>
-        `;
-      } else {
-        afternoonRowsHtml += `<td class="va-lesson-cell"><span class="va-cell-empty-mark">—</span></td>`;
-      }
-    }
-    afternoonRowsHtml += `</tr>`;
-  });
-
-  return `
-    <div class="va-timetable-wrapper">
-      <!-- Toolbar Controls -->
-      <div class="va-controls-toolbar">
-        <div class="va-toolbar-left">
-          <label class="va-label">LỚP HỌC:</label>
-          <select id="va-student-class-select" class="va-class-select">
-            ${filteredClasses.map(c => `<option value="${esc(c.id)}" ${c.id === currentClass.id ? 'selected' : ''}>${esc(c.name)} (Khối ${c.grade})</option>`).join('')}
-          </select>
-
-          <!-- Grade filters -->
-          <div class="va-grade-pills">
-            <button type="button" class="va-grade-btn ${studentGradeFilter === '' ? 'active' : ''}" data-student-grade="">Tất cả</button>
-            <button type="button" class="va-grade-btn ${studentGradeFilter === 'THCS' ? 'active' : ''}" data-student-grade="THCS">THCS</button>
-            <button type="button" class="va-grade-btn ${studentGradeFilter === 'THPT' ? 'active' : ''}" data-student-grade="THPT">THPT</button>
-            ${[6, 7, 8, 9, 10, 11, 12].map(g => `
-              <button type="button" class="va-grade-btn ${studentGradeFilter === String(g) ? 'active' : ''}" data-student-grade="${g}">K${g}</button>
-            `).join('')}
-          </div>
-
-          <!-- Version badge -->
-          <span class="live-pill ${isViewingPublished ? 'published' : ''}" style="font-size:10px;padding:4px 8px;">
-            ${isViewingPublished ? '✓ Bản chính thức' : '📋 Bản đang xếp'}
-          </span>
-        </div>
-
-        <div class="va-toolbar-right">
-          ${canEdit ? `
-            <button type="button" class="btn-va-edit-week" data-action="open-edit-week-modal" title="Chỉnh sửa số tuần và dải ngày">
-              <span>✏️</span> Sửa tuần / ngày
-            </button>
-          ` : ''}
-          <button type="button" class="btn-va-print" data-action="print-timetable" title="In trực tiếp trang này">
-            <span>🖨️</span> In TKB
-          </button>
-          <button type="button" class="btn-va-export" id="btn-export-tkb-png" data-action="export-timetable-png" title="Xuất thẻ thời khóa biểu thành hình ảnh PNG chất lượng cao">
-            <span class="btn-icon">📥</span> <strong>Tải ảnh TKB (PNG)</strong>
-          </button>
-        </div>
-      </div>
-
-      <!-- Capture Card (Mẫu đỏ đô VA Schools) -->
-      <div id="student-timetable-capture-card" class="va-timetable-card">
-        <!-- Card Header -->
-        <div class="va-card-header">
-          <div class="va-header-logo">
-            <img src="/assets/aistudio/VA_SCHOOLS_-_Logo_Assets_-_RGB-05_9d1000de.png" alt="VA Schools Logo" class="va-logo-img" crossOrigin="anonymous" />
-          </div>
-
-          <div class="va-header-center">
-            <span class="va-school-brand">HỆ THỐNG TRƯỜNG VIỆT MỸ · VIETNAM AMERICA SCHOOLS</span>
-            <h1 class="va-title">THỜI KHÓA BIỂU HỌC SINH</h1>
-            <div class="va-subtitle">
-              <span>LỚP: <strong class="va-class-tag">${esc(currentClass.name)}</strong></span>
-              <span>·</span>
-              <span>GVCN: <strong style="color:#8C0D36;">${esc(homeroomTeacherName)}</strong></span>
-              <span>·</span>
-              <span>${esc(workingDraft.school?.year || 'Năm học 2026-2027')} · ${esc(workingDraft.school?.term || 'HK1')}</span>
-            </div>
-
-            <!-- Week & Date Pill -->
-            <div class="va-week-pill-container">
-              <div class="va-week-pill" id="va-week-pill">
-                <span class="va-pill-icon">📅</span>
-                <span class="va-pill-week-part ${canEdit ? 'va-editable' : ''}" data-field="week" data-class-id="${esc(currentClass.id)}" contenteditable="${canEdit}" title="${canEdit ? 'Click để sửa số tuần (nhấn Enter để lưu)' : ''}">${esc(currentWeek)}</span>
-                <span class="va-pill-sep">:</span>
-                <span class="va-pill-dates-part ${canEdit ? 'va-editable' : ''}" data-field="dates" data-class-id="${esc(currentClass.id)}" contenteditable="${canEdit}" title="${canEdit ? 'Click để sửa dải ngày (nhấn Enter để lưu)' : ''}">${esc(weekDates)}</span>
-                ${canEdit ? `<button type="button" class="va-pill-edit-icon-btn" data-action="open-edit-week-modal" title="Mở hộp thoại chỉnh sửa tuần & ngày">✏️</button>` : ''}
-              </div>
-            </div>
-          </div>
-
-          <div class="va-header-mascot">
-            <div class="va-mascot-crest">
-              <img src="/assets/aistudio/VA_SCHOOLS_-_Logo_Assets_-_RGB-05_9d1000de.png" alt="VA Emblem" crossOrigin="anonymous" />
-              <span class="va-mascot-badge">VASS SPIRIT</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Table -->
-        <div class="va-table-scroll">
-          <table class="va-timetable-table">
-            <thead class="va-table-thead">
-              <tr>
-                <th style="width:55px;">BUỔI</th>
-                <th style="width:40px;">TIẾT</th>
-                <th style="width:88px;">THỜI GIAN</th>
-                <th style="width:17%;">THỨ HAI</th>
-                <th style="width:17%;">THỨ BA</th>
-                <th style="width:17%;">THỨ TƯ</th>
-                <th style="width:17%;">THỨ NĂM</th>
-                <th style="width:17%;">THỨ SÁU</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${morningRowsHtml}
-              <tr class="va-noon-row">
-                <td colspan="8">🍽️ NGHỈ TRƯA · ĂN TRƯA &amp; SINH HOẠT BÁN TRÚ (11:45 - 13:30)</td>
-              </tr>
-              ${afternoonRowsHtml}
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Footer Brand Ribbon -->
-        <div class="va-footer-accent-line"></div>
-        <div class="va-footer-bar">
-          <div class="va-footer-motto">
-            <span>🏫</span>
-            <span>HỆ THỐNG TRƯỜNG VIỆT MỸ (VIETNAM AMERICA SCHOOLS) — CHẤT LƯỢNG - TẬN TÂM - KHAI PHÓNG</span>
-          </div>
-          <div class="va-footer-contact">
-            <span>🌐 vaschools.edu.vn</span>
-            <span>☎️ Hotline: (028) 3855 0880</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
-}
-
 function renderHomeroomClassTimetable(homeroomClasses) {
-  if (!homeroomClasses || !homeroomClasses.length) {
+  if (!publishedTimetable || !publishedTimetable.isPublished) {
+    return `
+      <div class="card" style="text-align:center;padding:50px 20px;">
+        <span style="font-size:36px;display:block;margin-bottom:12px;">📅</span>
+        <h2>Chưa có thời khóa biểu đã chốt</h2>
+        <p>Nhà trường hiện chưa công bố bản thời khóa biểu chính thức.</p>
+      </div>
+    `;
+  }
+
+  if (!homeroomClasses.length) {
     return '<div class="alert">Tài khoản của bạn chưa được Quản trị viên xác nhận lớp chủ nhiệm. Vui lòng liên hệ nhà trường.</div>';
   }
-  return renderStudentTimetableView(selectedHomeroomClassId || homeroomClasses[0]?.id, homeroomClasses);
+
+  const activeClassId = selectedHomeroomClassId || homeroomClasses[0]?.id;
+  const currentClass = homeroomClasses.find(c => c.id === activeClassId) || homeroomClasses[0];
+  const pData = publishedTimetable.data;
+  const cellsMap = new Map((pData.timetableCells || []).filter(c => c.classId === currentClass.id).map(c => [c.timeSlotId, c]));
+
+  let rows = '';
+  for (let day = 2; day <= 6; day++) {
+    const slots = (pData.timeSlots || []).filter(slot => slot.dayOfWeek === day).sort((a, b) => a.globalPeriod - b.globalPeriod);
+    slots.forEach((slot, i) => {
+      const cell = cellsMap.get(slot.id);
+      const subject = cell ? (pData.subjects || []).find(s => s.id === cell.subjectId) : null;
+      const teacherName = cell ? text(pData.teachers || [], cell.teacherId, 'fullName') : '';
+
+      rows += `
+        <tr class="${i === 0 ? 'day-start ' : ''}">
+          ${i === 0 ? `<th rowspan="9" class="day-name" style="width:70px;background:#f0f4eb;">THỨ ${['', '', 'HAI', 'BA', 'TƯ', 'NĂM', 'SÁU'][day]}</th>` : ''}
+          ${slot.period === 1 ? `<th rowspan="${slot.session === 'MORNING' ? 5 : 4}" class="session ${slot.session.toLowerCase()}">${slot.session === 'MORNING' ? 'SÁNG' : 'CHIỀU'}</th>` : ''}
+          <th class="period">${slot.period}</th>
+          <td class="time">${esc(slot.startTime)} - ${esc(slot.endTime)}</td>
+          <td class="lesson ${cell ? 'filled' : 'empty'}" style="${subject ? '--subject:' + esc(subject.color) + ';' : ''}">
+            <div style="padding:10px 14px;border-radius:6px;background:color-mix(in srgb,var(--subject,#666) 12%,white);text-align:left;">
+              <strong style="display:block;font-size:12px;color:#184239;">${subject ? esc(subject.name) : '—'}</strong>
+              <span style="font-size:11px;color:#557065;">${teacherName ? 'GV: ' + esc(teacherName) : 'Chưa xếp GV'}</span>
+              ${cell?.note ? `<small style="display:block;font-size:9px;color:#859a8e;margin-top:2px;">${esc(cell.note)}</small>` : ''}
+            </div>
+          </td>
+        </tr>
+      `;
+    });
+  }
+
+  return `
+    <section class="matrix-panel">
+      <div class="panel-toolbar" style="flex-wrap:wrap;gap:12px;">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <label style="font-size:11px;font-weight:700;color:#184239;">LỚP CHỦ NHIỆM:</label>
+          <select id="homeroom-class-select" style="font-weight:700;">
+            ${homeroomClasses.map(c => `<option value="${esc(c.id)}" ${c.id === currentClass.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="toolbar-right">
+          <button data-action="print" class="primary">In thời khóa biểu lớp</button>
+        </div>
+      </div>
+
+      <div class="matrix-caption">
+        <div>
+          <span class="live-pill published">✓ BẢN CHÍNH THỨC</span>
+          <h2>THỜI KHÓA BIỂU LỚP ${esc(currentClass.name)}</h2>
+          <p>${esc(pData.school?.name)} · Năm học ${esc(pData.school?.year)} · ${esc(pData.school?.term)}</p>
+        </div>
+        <p class="matrix-help">Chế độ xem dành riêng cho giáo viên chủ nhiệm. Không có quyền sửa lịch.</p>
+      </div>
+
+      <div class="matrix-scroll">
+        <table class="matrix" style="width:100%;min-width:650px;">
+          <thead>
+            <tr>
+              <th style="width:70px;">Thứ</th>
+              <th style="width:60px;">Buổi</th>
+              <th style="width:45px;">Tiết</th>
+              <th style="width:110px;">Thời gian</th>
+              <th>Môn học & Giáo viên phụ trách</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </section>
+  `;
 }
 
 // ----------------------------------------------------
@@ -2480,6 +2392,22 @@ function render() {
       </header>
 
       <main>
+        ${
+          isQuotaExhausted()
+            ? `
+          <div class="quota-warning-banner" role="alert" style="background:#fee2e2;border:1px solid #ef4444;color:#991b1b;padding:14px 18px;margin-bottom:18px;border-radius:8px;display:flex;align-items:center;justify-content:space-between;gap:16px;box-shadow:0 2px 6px rgba(0,0,0,0.06);">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span style="font-size:24px;">⚠️</span>
+              <div>
+                <strong style="font-size:13px;display:block;">Đã vượt hạn mức ghi Firestore trong ngày (Resource Exhausted)</strong>
+                <span style="font-size:12px;opacity:0.9;">Hệ thống đã dừng tất cả thao tác ghi trong phiên này để bảo vệ ứng dụng. Dữ liệu hiện tại vẫn đầy đủ, hãy tải ngay bản sao lưu JSON về máy tính.</span>
+              </div>
+            </div>
+            <button data-action="backup" class="primary" style="background:#b91c1c;color:#fff;border:none;padding:8px 16px;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;white-space:nowrap;">↓ Tải sao lưu JSON ngay</button>
+          </div>
+        `
+            : ''
+        }
         <div class="page-heading">
           <div>
             <div class="eyebrow">LẬP LỊCH • ${esc(state.school?.term || 'HK1')}</div>
@@ -3193,179 +3121,10 @@ function respondRequestDialog(requestId, decision) {
 }
 
 // ----------------------------------------------------
-// VA Schools Student Timetable Helpers: Dates & Export
-// ----------------------------------------------------
-async function saveWeekAndDates({ classId, week, dates, applyToAll = false }) {
-  const targetClass = (workingDraft.classes || []).find(c => c.id === (classId || studentSelectedClassId));
-  const w = week !== undefined && week !== null ? String(week).trim() : (targetClass?.weekInfo?.week || workingDraft.school?.currentWeek || 'Tuần 8');
-  const d = dates !== undefined && dates !== null ? String(dates).trim() : (targetClass?.weekInfo?.dates || workingDraft.school?.weekDates || '05/10 - 09/10/2026');
-
-  if (applyToAll || !classId) {
-    if (workingDraft.school) {
-      workingDraft.school.currentWeek = w;
-      workingDraft.school.weekDates = d;
-    }
-    if (state.school) {
-      state.school.currentWeek = w;
-      state.school.weekDates = d;
-    }
-    workingDraft.classes = (workingDraft.classes || []).map(c => ({
-      ...c,
-      weekInfo: { week: w, dates: d }
-    }));
-    state.classes = (state.classes || []).map(c => ({
-      ...c,
-      weekInfo: { week: w, dates: d }
-    }));
-  } else {
-    workingDraft.classes = (workingDraft.classes || []).map(c => {
-      if (c.id === classId) {
-        return { ...c, weekInfo: { week: w, dates: d } };
-      }
-      return c;
-    });
-    state.classes = (state.classes || []).map(c => {
-      if (c.id === classId) {
-        return { ...c, weekInfo: { week: w, dates: d } };
-      }
-      return c;
-    });
-  }
-
-  localStorage.setItem(KEY, JSON.stringify(workingDraft));
-  if (isSchedulerRole()) {
-    await syncWorkingToCloud(workingDraft);
-  }
-  toast(`Đã lưu thông tin ${w}: ${d}!`);
-  render();
-}
-
-function openEditWeekModal(classId) {
-  const currentClass = (workingDraft.classes || []).find(c => c.id === (classId || studentSelectedClassId)) || workingDraft.classes?.[0];
-  const weekInfo = currentClass?.weekInfo || {};
-  const currentWeek = weekInfo.week || workingDraft.school?.currentWeek || 'Tuần 8';
-  const weekDates = weekInfo.dates || workingDraft.school?.weekDates || '05/10 - 09/10/2026';
-
-  openDialog(`
-    <form id="va-edit-week-form">
-      <div class="dialog-title">
-        <div>
-          <h2 style="color:#8C0D36;margin:0 0 4px;">Tùy chỉnh Ngày tháng & Số tuần</h2>
-          <p style="margin:0;font-size:11px;color:#6b7280;">Hiển thị trên thanh pill Thời khóa biểu học sinh VA Schools</p>
-        </div>
-        ${closeButton}
-      </div>
-
-      <label>Số Tuần hiển thị
-        <input type="text" name="week" id="modal-week-input" value="${esc(currentWeek)}" placeholder="Ví dụ: Tuần 8, Tuần 10" required />
-        <span class="field-help">Có thể nhập dạng "Tuần 8" hoặc "8"</span>
-      </label>
-
-      <label>Dải ngày áp dụng
-        <input type="text" name="dates" id="modal-dates-input" value="${esc(weekDates)}" placeholder="Ví dụ: 05/10 - 09/10/2026" required />
-        <span class="field-help">Định dạng hiển thị: DD/MM - DD/MM/YYYY</span>
-      </label>
-
-      <div style="margin-top:16px;background:#fdf2f4;border:1px solid #f9d8e0;padding:12px 14px;border-radius:8px;">
-        <label class="checkbox" style="font-weight:700;color:#8C0D36;margin:0;">
-          <input type="checkbox" name="applyToAll" id="modal-apply-all-checkbox" checked />
-          <span>Áp dụng đồng bộ cho tất cả các lớp trong trường</span>
-        </label>
-        <small style="color:#788c80;display:block;margin-top:6px;line-height:1.4;">
-          Nếu bỏ chọn, chỉ lưu thông tin này cho riêng lớp <strong>${esc(currentClass?.name || 'này')}</strong>.
-        </small>
-      </div>
-
-      <div class="dialog-actions">
-        <button type="button" data-action="close">Hủy</button>
-        <button type="submit" class="primary" style="background:#8C0D36;border-color:#8C0D36;">Lưu thông tin tuần & ngày</button>
-      </div>
-    </form>
-  `);
-
-  const form = dialog.querySelector('#va-edit-week-form');
-  if (form) {
-    form.onsubmit = async e => {
-      e.preventDefault();
-      const fd = new FormData(form);
-      const week = fd.get('week');
-      const dates = fd.get('dates');
-      const applyToAll = fd.get('applyToAll') === 'on';
-      dialog.close();
-      await saveWeekAndDates({ classId: currentClass?.id, week, dates, applyToAll });
-    };
-  }
-}
-
-async function exportStudentTimetableAsPng() {
-  const cardEl = document.querySelector('#student-timetable-capture-card');
-  const exportBtn = document.querySelector('#btn-export-tkb-png');
-  if (!cardEl || !exportBtn) return;
-
-  const originalContent = exportBtn.innerHTML;
-  exportBtn.disabled = true;
-  exportBtn.classList.add('loading');
-  exportBtn.innerHTML = `
-    <span class="va-spinner"></span>
-    <span>Đang xuất ảnh...</span>
-  `;
-
-  try {
-    // Wait for DOM to settle
-    await new Promise(res => setTimeout(res, 120));
-
-    const canvas = await html2canvas(cardEl, {
-      scale: 3, // Ultra-high 3x DPI for crisp text on mobile & messaging apps
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: '#ffffff',
-      logging: false,
-      windowWidth: cardEl.scrollWidth || 1200
-    });
-
-    const currentClass = (workingDraft.classes || []).find(c => c.id === studentSelectedClassId) || workingDraft.classes?.[0];
-    const rawClassName = currentClass?.name || currentClass?.code || 'Lop';
-    const cleanClassName = rawClassName.replace(/^Lớp\s*/i, '').trim().replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, '');
-
-    const rawWeek = currentClass?.weekInfo?.week || workingDraft.school?.currentWeek || '8';
-    const weekDigits = rawWeek.match(/\d+/);
-    const cleanWeek = weekDigits ? weekDigits[0] : rawWeek.replace(/[^a-zA-Z0-9]/g, '');
-
-    const fileName = `TKB_${cleanClassName}_Tuan_${cleanWeek}.png`;
-
-    const dataUrl = canvas.toDataURL('image/png');
-    const downloadLink = document.createElement('a');
-    downloadLink.download = fileName;
-    downloadLink.href = dataUrl;
-    document.body.appendChild(downloadLink);
-    downloadLink.click();
-    document.body.removeChild(downloadLink);
-
-    toast(`Đã tải ảnh ${fileName} (độ phân giải cao) thành công!`);
-  } catch (err) {
-    console.error('Lỗi khi xuất ảnh TKB:', err);
-    toast('Không thể xuất ảnh: ' + (err?.message || 'Lỗi chụp canvas'));
-  } finally {
-    exportBtn.disabled = false;
-    exportBtn.classList.remove('loading');
-    exportBtn.innerHTML = originalContent;
-  }
-}
-
-// ----------------------------------------------------
 // Global Event Listeners & Actions
 // ----------------------------------------------------
 const actions = {
   close: () => dialog.close(),
-  'export-timetable-png': async () => {
-    await exportStudentTimetableAsPng();
-  },
-  'open-edit-week-modal': () => {
-    openEditWeekModal(studentSelectedClassId);
-  },
-  'print-timetable': () => {
-    window.print();
-  },
   login: async () => {
     authError = '';
     try {
@@ -3430,17 +3189,34 @@ const actions = {
       toast('Bạn không có quyền công bố thời khóa biểu.');
       return;
     }
+    if (isQuotaExhausted()) {
+      toast('Hạn mức ghi Firestore đã hết (resource-exhausted). Không thể công bố.');
+      return;
+    }
     const conflicts = findConflicts(workingDraft);
     if (conflicts.length) {
       toast(`Còn ${conflicts.length} tiết trùng lịch giáo viên! Vui lòng xử lý trước khi công bố.`);
       return;
     }
+
+    const next = publishDraft(workingDraft);
+
+    // 6. Không công bố lại lịch giống bản đã công bố: 0 ghi!
+    if (publishedTimetable && publishedTimetable.isPublished && publishedTimetable.data) {
+      if (arePublishedContentEqual(publishedTimetable.data, next)) {
+        toast('Thời khóa biểu hiện tại giống hệt bản đã công bố trên Cloud. Không cần công bố lại.');
+        activeVersion = 'published';
+        showPublished = true;
+        render();
+        return;
+      }
+    }
+
     if (!confirm('Công bố toàn bộ thời khóa biểu lên toàn trường? Học sinh và giáo viên sẽ xem được bản chốt này.')) {
       return;
     }
     setSync('saving', 'Đang công bố lên toàn trường...');
     try {
-      const next = publishDraft(workingDraft);
       const timeStr = next.lastPublishedAt;
       const payloadPublished = {
         isPublished: true,
@@ -3459,6 +3235,11 @@ const actions = {
         toast('Đã công bố thời khóa biểu lên toàn trường thành công!');
       }
     } catch (err) {
+      if (checkAndFlagQuotaError(err)) {
+        setSync('error', 'Hết hạn mức Cloud (Resource Exhausted)');
+        render();
+        return;
+      }
       toast('Lỗi khi công bố: ' + err.message);
       setSync('error', 'Lỗi công bố');
     }
@@ -3622,20 +3403,46 @@ const actions = {
   'add-account': () => accountEditor(null),
   'save-availability': async () => {
     if (!currentUser?.email) return;
-    const dateRangeText = document.querySelector('#avail-daterange')?.value || '';
-    const noteText = document.querySelector('#avail-note')?.value || '';
+    if (isQuotaExhausted()) {
+      toast('Hạn mức ghi Firestore đã hết (resource-exhausted). Không thể lưu lịch bận.');
+      return;
+    }
+    const dateRangeText = (document.querySelector('#avail-daterange')?.value || '').trim();
+    const noteText = (document.querySelector('#avail-note')?.value || '').trim();
+    const newAvail = (availabilityDoc?.availableSlotIds || []).slice();
+    const newBusy = (availabilityDoc?.busySlotIds || []).slice();
+
+    const newObj = {
+      availableSlotIds: newAvail,
+      busySlotIds: newBusy,
+      dateRange: { text: dateRangeText },
+      note: noteText
+    };
+
+    // 6. Không ghi lại lịch bận khi nội dung không đổi: 0 ghi!
+    if (serverConfirmedAvailability && areAvailabilitiesEqual(serverConfirmedAvailability, newObj)) {
+      toast('Lịch đăng ký không có thay đổi so với bản đã lưu trên Cloud.');
+      return;
+    }
+
     const payload = {
       teacherEmail: currentUser.email.toLowerCase(),
-      availableSlotIds: availabilityDoc?.availableSlotIds || [],
-      busySlotIds: availabilityDoc?.busySlotIds || [],
+      availableSlotIds: newAvail,
+      busySlotIds: newBusy,
       dateRange: { text: dateRangeText },
       note: noteText,
       updatedAt: new Date().toISOString()
     };
     try {
       await setDoc(doc(db, 'availabilities', currentUser.email.toLowerCase()), payload);
+      serverConfirmedAvailability = clone(payload);
       toast('Đã lưu khung thời gian có thể dạy lên Cloud.');
     } catch (e) {
+      if (checkAndFlagQuotaError(e)) {
+        toast('Hạn mức Firestore đã hết. Vui lòng thử lại sau.');
+        render();
+        return;
+      }
       toast('Lỗi lưu thời gian: ' + e.message);
     }
   },
@@ -3818,11 +3625,6 @@ document.addEventListener('click', async event => {
   }
   if (element.dataset.action && actions[element.dataset.action]) {
     await actions[element.dataset.action](element);
-    return;
-  }
-  if (element.dataset.studentGrade !== undefined) {
-    studentGradeFilter = element.dataset.studentGrade;
-    render();
     return;
   }
   if (element.dataset.view) {
@@ -4144,12 +3946,6 @@ document.addEventListener('change', event => {
     render();
     return;
   }
-  if (event.target.id === 'va-student-class-select') {
-    studentSelectedClassId = event.target.value;
-    selectedHomeroomClassId = event.target.value;
-    render();
-    return;
-  }
   if (event.target.id === 'cell-subject-select') {
     const selSub = (state.subjects || []).find(s => s.id === event.target.value);
     const subIn = document.querySelector('#cell-subject-input');
@@ -4200,30 +3996,8 @@ document.addEventListener('mousemove', event => {
 });
 
 document.addEventListener('keydown', event => {
-  if (event.key === 'Enter' && event.target?.classList?.contains('va-editable')) {
-    event.preventDefault();
-    event.target.blur();
-    return;
-  }
   if (event.key === 'Escape') {
     closePopover();
-  }
-});
-
-document.addEventListener('focusout', async event => {
-  if (event.target?.classList?.contains('va-editable')) {
-    const el = event.target;
-    const field = el.dataset.field; // 'week' | 'dates'
-    const classId = el.dataset.classId;
-    const val = el.textContent.trim();
-    if (!val) return;
-    const currentClass = (workingDraft.classes || []).find(c => c.id === classId);
-    const prevVal = field === 'week'
-      ? (currentClass?.weekInfo?.week || workingDraft.school?.currentWeek)
-      : (currentClass?.weekInfo?.dates || workingDraft.school?.weekDates);
-    if (val !== prevVal) {
-      await saveWeekAndDates({ classId, [field]: val, applyToAll: false });
-    }
   }
 });
 
@@ -4257,6 +4031,27 @@ document.addEventListener('input', event => {
 document.addEventListener('submit', async event => {
   event.preventDefault();
   const form = event.target;
+  if (!form) return;
+
+  // 5. Khóa nút và biểu mẫu khi đang lưu để tránh nhấp/gửi nhiều lần
+  if (form.dataset.submitting === 'true' || isGlobalSaving) {
+    return;
+  }
+
+  // 7. Khi gặp resource-exhausted, dừng tạo thêm thao tác ghi trong phiên hiện tại
+  if (isQuotaExhausted()) {
+    toast('Hạn mức ghi Firestore đã hết (resource-exhausted). Mọi thao tác ghi đã dừng trong phiên này.');
+    return;
+  }
+
+  form.dataset.submitting = 'true';
+  const submitBtns = form.querySelectorAll('button[type="submit"], input[type="submit"], button:not([type="button"])');
+  submitBtns.forEach(btn => {
+    btn.disabled = true;
+    btn.dataset.prevText = btn.textContent;
+    btn.textContent = 'Đang lưu...';
+  });
+
   const data = new FormData(form);
 
   try {
@@ -4267,6 +4062,19 @@ document.addEventListener('submit', async event => {
       const displayName = String(data.get('displayName') || '').trim();
 
       const userEmail = currentUser.email.toLowerCase();
+      const newProfile = {
+        displayName: displayName || currentUser.displayName || 'Giáo viên',
+        role: 'TEACHER',
+        active: false,
+        selfDeclared: { subjects, homeroomClassId, note }
+      };
+
+      // 6. Không ghi lại hồ sơ khi nội dung không đổi
+      if (currentUserProfile && areUserProfilesEqual(currentUserProfile, newProfile)) {
+        toast('Hồ sơ không có thay đổi, không cần gửi lại.');
+        return;
+      }
+
       await setDoc(doc(db, 'users', userEmail), {
         email: userEmail,
         displayName: displayName || currentUser.displayName || 'Giáo viên',
@@ -4368,16 +4176,28 @@ document.addEventListener('submit', async event => {
       if (targetEmail === OWNER_EMAIL && !isOwner()) throw Error('Không thể thay đổi quyền của Quản trị chính.');
       if (targetEmail === OWNER_EMAIL && role !== 'OWNER') throw Error('Quản trị chính không thể tự hạ quyền.');
 
+      const updatedProfile = {
+        role,
+        displayName: displayName || (targetEmail === OWNER_EMAIL ? 'Quản trị chính' : ''),
+        teacherId,
+        isVisiting,
+        homeroomClassIds,
+        active
+      };
+
+      // 6. Không ghi lại hồ sơ khi nội dung không đổi
+      const existingUser = accountsList.find(a => a.email.toLowerCase() === targetEmail);
+      if (existingUser && areUserProfilesEqual(existingUser, updatedProfile)) {
+        toast(`Tài khoản ${targetEmail} không có thay đổi, không cần ghi lại.`);
+        dialog.close();
+        return;
+      }
+
       await setDoc(
         doc(db, 'users', targetEmail),
         {
           email: targetEmail,
-          displayName: displayName || (targetEmail === OWNER_EMAIL ? 'Quản trị chính' : ''),
-          role,
-          teacherId,
-          isVisiting,
-          homeroomClassIds,
-          active,
+          ...updatedProfile,
           updatedAt: new Date().toISOString(),
           updatedBy: currentUser?.email || 'admin'
         },
@@ -4388,10 +4208,25 @@ document.addEventListener('submit', async event => {
       dialog.close();
     } else if (form.id === 'review-profile-form') {
       const targetEmail = form.dataset.target;
-      const teacherId = data.get('teacherId');
+      const teacherId = data.get('teacherId') || '';
       const homeroomClassIds = data.getAll('homeroomClassIds');
       const isVisiting = data.has('isVisiting');
       const active = data.has('active');
+
+      const updatedReview = {
+        teacherId,
+        homeroomClassIds,
+        isVisiting,
+        active
+      };
+
+      // 6. Không ghi lại hồ sơ khi nội dung không đổi
+      const existingUser = accountsList.find(a => a.email.toLowerCase() === targetEmail.toLowerCase());
+      if (existingUser && areUserProfilesEqual(existingUser, updatedReview)) {
+        toast(`Hồ sơ cho ${targetEmail} không có thay đổi.`);
+        dialog.close();
+        return;
+      }
 
       await updateDoc(doc(db, 'users', targetEmail), {
         teacherId,
@@ -4447,6 +4282,20 @@ document.addEventListener('submit', async event => {
       const subjects = data.getAll('subjects').map(s => String(s).trim());
       const note = String(data.get('note') || '').trim();
 
+      const newSelf = {
+        selfDeclared: {
+          subjects,
+          note
+        }
+      };
+
+      // 6. Không ghi lại khi nội dung không đổi
+      if (currentUserProfile && areUserProfilesEqual(currentUserProfile, newSelf)) {
+        toast('Thông tin cá nhân không có thay đổi.');
+        dialog.close();
+        return;
+      }
+
       await updateDoc(doc(db, 'users', currentUser.email.toLowerCase()), {
         'selfDeclared.subjects': subjects,
         'selfDeclared.note': note,
@@ -4457,9 +4306,21 @@ document.addEventListener('submit', async event => {
       dialog.close();
     }
   } catch (error) {
+    if (checkAndFlagQuotaError(error)) {
+      setSync('error', 'Hết hạn mức Cloud (Resource Exhausted)');
+      toast('Hệ thống đã đạt hạn mức ghi Firestore (resource-exhausted). Đã dừng mọi thao tác ghi trong phiên này. Hãy tải sao lưu JSON.');
+      render();
+      return;
+    }
     const output = form.querySelector('#form-error');
     if (output) output.textContent = error.message;
     else toast(error.message);
+  } finally {
+    form.dataset.submitting = 'false';
+    submitBtns.forEach(btn => {
+      btn.disabled = false;
+      if (btn.dataset.prevText) btn.textContent = btn.dataset.prevText;
+    });
   }
 });
 
