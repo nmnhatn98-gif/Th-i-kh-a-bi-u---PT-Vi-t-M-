@@ -1,3 +1,5 @@
+import { saveDriveFile } from './drive-backup.js';
+import { contentSignature } from './write-gate.js';
 import * as XLSX from 'xlsx';
 import { SEED } from './seed.js';
 import {
@@ -51,12 +53,23 @@ import {
   handleFirestoreError,
   OperationType,
   testConnection,
-  runTransaction,
+  backup as cloudBackup,
+  migrate as importMigration,
+  authorizeDrive,
+  saveWorkingDocument,
+  isWriting,
+  query as fsQuery,
+  where,
   isQuotaExhausted,
   setQuotaExhausted,
   checkAndFlagQuotaError
 } from './firebase.js';
 
+function download(name,data,type='application/json'){
+  const url=URL.createObjectURL(new Blob([data],{type}));
+  const link=document.createElement('a');link.href=url;link.download=name;link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
 const KEY = 'TKB_NEW_V1';
 const OWNER_EMAIL = 'nmnhat.n98@gmail.com';
 
@@ -71,6 +84,8 @@ let serverConfirmedWorking = null;
 let serverConfirmedAvailability = null;
 let isSavingWorking = false;
 let isGlobalSaving = false;
+let authGeneration=0;
+const pendingActions=new Set();
 
 
 // Publishing Engine & Environment State
@@ -83,6 +98,89 @@ let armedCard = null; // { classId: string, subjectId: string, teacherId: string
 let currentWorkspace = 'ADMIN';
 let view = 'matrix'; // active sub-view
 let matrixViewMode = 'assignment'; // 'assignment' (Ma trận phân công Môn - Lớp) | 'timetable' (Tiết - Lớp)
+
+// Lưu giữ và bảo toàn tọa độ cuộn cho cả 2 bản ma trận (Phân công Môn-Lớp & TKB Tiết-Lớp)
+export const matrixScrollPositions = {
+  assignment: { left: 0, top: 0 },
+  timetable: { left: 0, top: 0 }
+};
+export let savedTrayScrollLeft = 0;
+export let savedTrayScrollTop = 0;
+export let savedWorkspaceScrollTop = 0;
+export let savedWindowScrollX = 0;
+export let savedWindowScrollY = 0;
+
+export function recordCurrentScrollPositions() {
+  const matrixContainer = document.querySelector('#matrix-scroll-container') || document.querySelector('.matrix-scroll');
+  if (matrixContainer) {
+    if (matrixViewMode === 'assignment') {
+      matrixScrollPositions.assignment.left = matrixContainer.scrollLeft;
+      matrixScrollPositions.assignment.top = matrixContainer.scrollTop;
+    } else if (matrixViewMode === 'timetable') {
+      matrixScrollPositions.timetable.left = matrixContainer.scrollLeft;
+      matrixScrollPositions.timetable.top = matrixContainer.scrollTop;
+    }
+  }
+
+  const trayContainer = document.querySelector('.tray-cards-container') || document.querySelector('.timetable-tray-sidebar');
+  if (trayContainer) {
+    savedTrayScrollLeft = trayContainer.scrollLeft;
+    savedTrayScrollTop = trayContainer.scrollTop;
+  }
+
+  const workspace = document.querySelector('.workspace');
+  if (workspace) {
+    savedWorkspaceScrollTop = workspace.scrollTop;
+  }
+
+  if (typeof window !== 'undefined') {
+    savedWindowScrollX = window.scrollX || window.pageXOffset || 0;
+    savedWindowScrollY = window.scrollY || window.pageYOffset || 0;
+  }
+}
+
+export function restoreCurrentScrollPositions() {
+  const currentModePos = matrixScrollPositions[matrixViewMode];
+  const matrixContainer = document.querySelector('#matrix-scroll-container') || document.querySelector('.matrix-scroll');
+  if (matrixContainer && currentModePos) {
+    matrixContainer.scrollLeft = currentModePos.left;
+    matrixContainer.scrollTop = currentModePos.top;
+  }
+
+  const trayContainer = document.querySelector('.tray-cards-container') || document.querySelector('.timetable-tray-sidebar');
+  if (trayContainer) {
+    trayContainer.scrollLeft = savedTrayScrollLeft;
+    trayContainer.scrollTop = savedTrayScrollTop;
+  }
+
+  const workspace = document.querySelector('.workspace');
+  if (workspace && savedWorkspaceScrollTop > 0) {
+    workspace.scrollTop = savedWorkspaceScrollTop;
+  }
+
+  if (typeof window !== 'undefined' && (savedWindowScrollX > 0 || savedWindowScrollY > 0)) {
+    window.scrollTo(savedWindowScrollX, savedWindowScrollY);
+  }
+
+  if (typeof requestAnimationFrame !== 'undefined') {
+    requestAnimationFrame(() => {
+      const mc = document.querySelector('#matrix-scroll-container') || document.querySelector('.matrix-scroll');
+      if (mc && currentModePos) {
+        if (mc.scrollLeft !== currentModePos.left) mc.scrollLeft = currentModePos.left;
+        if (mc.scrollTop !== currentModePos.top) mc.scrollTop = currentModePos.top;
+      }
+      const tc = document.querySelector('.tray-cards-container') || document.querySelector('.timetable-tray-sidebar');
+      if (tc) {
+        if (tc.scrollLeft !== savedTrayScrollLeft) tc.scrollLeft = savedTrayScrollLeft;
+        if (tc.scrollTop !== savedTrayScrollTop) tc.scrollTop = savedTrayScrollTop;
+      }
+      if (typeof window !== 'undefined' && (savedWindowScrollX > 0 || savedWindowScrollY > 0)) {
+        window.scrollTo(savedWindowScrollX, savedWindowScrollY);
+      }
+    });
+  }
+}
+
 let brushTeacherId = '';
 let brushMode = 'none'; // 'none' | 'brush' | 'eraser'
 let selectedTeacherHighlight = '';
@@ -101,6 +199,7 @@ let currentUser = null;
 let currentUserProfile = null;
 let authLoading = true;
 let authError = '';
+let profileReadError='';
 let loginIntent = 'teacher'; // 'admin' | 'teacher'
 let isSubmittingOnboarding = false;
 
@@ -249,86 +348,42 @@ async function syncWorkingToCloud(nextState) {
     toast('Chỉ Người xếp lịch hoặc Quản trị viên mới được cập nhật bản nháp.');
     return false;
   }
-  if (isQuotaExhausted()) {
-    setSync('error', 'Hết hạn mức Cloud (Resource Exhausted)');
-    toast('Hệ thống đã đạt hạn mức ghi Firestore (resource-exhausted). Đã dừng mọi thao tác ghi mới trong phiên này. Vui lòng tải sao lưu JSON.');
-    render();
-    return false;
-  }
-  if (isSavingWorking) {
-    return false;
-  }
-  isSavingWorking = true;
-  setSync('saving', 'Đang kiểm tra và lưu Cloud...');
+  if (isQuotaExhausted()) { toast('Hết hạn mức ghi. Hãy tải sao lưu JSON và thử lại khi hạn mức khôi phục.'); return false; }
+  const generation=authGeneration;
+  setSync('saving', 'Đang lưu lên Cloud...');
   try {
     validateState(nextState);
-    const normalized = normalizeState(nextState);
-
-    // 4. So sánh với dữ liệu máy chủ đã xác nhận. Nếu không đổi thì bỏ qua; 0 lần ghi!
-    if (serverConfirmedWorking && areTimetablesContentEqual(serverConfirmedWorking, normalized)) {
-      workingDraft = normalized;
-      if (activeVersion === 'draft') {
-        state = clone(normalized);
-      } else {
-        state = clone(displayed());
-      }
-      setSync('idle', 'Đã lưu Cloud (không đổi)');
-      return true;
+    let normalized = normalizeState(nextState);
+    if(serverConfirmedWorking && areTimetablesContentEqual(serverConfirmedWorking,normalized)) {
+      workingDraft=normalized; state=clone(displayed());
+      setSync('idle','Đã lưu Cloud (không đổi)'); return true;
     }
-
-    // 8. Dùng transaction kiểm tra revision khi lưu lịch để tránh hai người ghi đè dữ liệu của nhau
-    const result = await runTransaction(db, async transaction => {
-      const workingDocRef = doc(db, 'timetables', 'working');
-      const sfDoc = await transaction.get(workingDocRef);
-      let baseRevision = 0;
-      if (sfDoc.exists()) {
-        const serverData = sfDoc.data();
-        baseRevision = serverData.revision || 0;
-        if (currentRevision && serverData.revision > currentRevision) {
-          throw new Error(`Xung đột phiên bản: Dữ liệu trên Cloud (Revision ${serverData.revision}) mới hơn phiên bản của bạn (${currentRevision}). Hãy tải lại trang để tránh ghi đè lịch của người khác.`);
-        }
-        const serverNormalized = normalizeState(serverData);
-        if (areTimetablesContentEqual(serverNormalized, normalized)) {
-          return { skipped: true, revision: serverData.revision, serverData: serverNormalized };
-        }
-      }
-
-      const revision = (baseRevision || currentRevision || 0) + 1;
-      const payload = {
-        revision,
-        school: normalized.school,
-        classes: normalized.classes,
-        subjects: normalized.subjects,
-        teachers: normalized.teachers,
-        timeSlots: normalized.timeSlots,
-        timetableCells: normalized.timetableCells,
-        draftAssignments: normalized.draftAssignments || [],
-        draftSchedule: normalized.draftSchedule || [],
-        publishedAssignments: normalized.publishedAssignments || [],
-        publishedSchedule: normalized.publishedSchedule || [],
-        lastPublishedAt: normalized.lastPublishedAt || null,
-        activeVersion: normalized.activeVersion || activeVersion,
-        versions: normalized.versions || [],
-        updatedAt: new Date().toISOString(),
-        updatedBy: currentUser?.email || 'admin'
-      };
-
-      transaction.set(workingDocRef, payload);
-      return { skipped: false, revision, payload };
-    });
-
-    if (result.skipped) {
-      serverConfirmedWorking = clone(result.serverData || normalized);
-      currentRevision = result.revision;
-      workingDraft = normalized;
-      if (activeVersion === 'draft') state = clone(normalized);
-      else state = clone(displayed());
-      setSync('idle', 'Đã lưu Cloud (không đổi)');
-      return true;
-    }
-
-    currentRevision = result.revision;
-    serverConfirmedWorking = clone(normalized);
+    let revision = (currentRevision || 0) + 1;
+    const payload = {
+      ...normalized,
+      revision,
+      school: normalized.school,
+      classes: normalized.classes,
+      subjects: normalized.subjects,
+      teachers: normalized.teachers,
+      timeSlots: normalized.timeSlots,
+      timetableCells: normalized.timetableCells,
+      draftAssignments: normalized.draftAssignments || [],
+      draftSchedule: normalized.draftSchedule || [],
+      publishedAssignments: normalized.publishedAssignments || [],
+      publishedSchedule: normalized.publishedSchedule || [],
+      lastPublishedAt: normalized.lastPublishedAt || null,
+      activeVersion: normalized.activeVersion || activeVersion,
+      versions: normalized.versions || [],
+      updatedAt: new Date().toISOString(),
+      updatedBy: currentUser?.email || 'admin'
+    };
+    const result=await saveWorkingDocument(payload,currentRevision);
+    if(result.mergedData){normalized=normalizeState(clone(result.mergedData));revision=result.mergedData.revision||revision;}
+    if(generation!==authGeneration)return false;
+    if(currentRevision>revision){toast('Lịch đã có cập nhật mới hơn. Vui lòng thử lại.');return false;}
+    if(!result.skipped)currentRevision = revision;
+    serverConfirmedWorking=clone(normalized);
     workingDraft = normalized;
     if (activeVersion === 'draft') {
       state = clone(normalized);
@@ -338,18 +393,11 @@ async function syncWorkingToCloud(nextState) {
     setSync('idle', 'Đã lưu Cloud');
     return true;
   } catch (error) {
-    if (checkAndFlagQuotaError(error)) {
-      setSync('error', 'Hết hạn mức Cloud (Resource Exhausted)');
-      toast('Hệ thống đã đạt hạn mức ghi Firestore (resource-exhausted). Đã dừng mọi thao tác ghi mới trong phiên này. Hãy tải sao lưu JSON.');
-      render();
-      return false;
-    }
+    if(generation!==authGeneration)return false;
     handleFirestoreError(error, OperationType.WRITE, 'timetables/working');
     setSync('error', 'Lỗi lưu: ' + error.message);
     toast('Lỗi lưu Cloud: ' + error.message);
     return false;
-  } finally {
-    isSavingWorking = false;
   }
 }
 
@@ -513,6 +561,7 @@ function initDataSubscriptions() {
 
         // Lưu bản ghi nhận dạng chuẩn từ server để so sánh trước khi ghi
         serverConfirmedWorking = normalizeState({
+          ...data,
           school: data.school || SEED.school,
           classes: data.classes || [],
           subjects: data.subjects || [],
@@ -529,6 +578,7 @@ function initDataSubscriptions() {
 
         // 2. Bỏ thao tác tự ghi trong onSnapshot. Đọc dữ liệu, lọc ô cũ, chuẩn hóa và render: 0 ghi!
         workingDraft = clone(serverConfirmedWorking);
+        if (snap.metadata?.hasPendingWrites || snap.metadata?.fromCache) serverConfirmedWorking = null;
 
         if (!showPublished && (currentWorkspace === 'ADMIN' || currentWorkspace === 'SCHEDULER')) {
           state = clone(workingDraft);
@@ -570,7 +620,7 @@ function initDataSubscriptions() {
 
   // 4. Requests listener (Schedulers read all, Teachers read their own)
   unsubRequests = onSnapshot(
-    collection(db, 'requests'),
+    isSchedulerRole() ? collection(db, 'requests') : fsQuery(collection(db, 'requests'), where('teacherEmail', '==', currentUser.email.toLowerCase().trim())),
     snap => {
       requestsList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       requestsList.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
@@ -592,7 +642,7 @@ function initDataSubscriptions() {
       doc(db, 'availabilities', currentUser.email.toLowerCase()),
       snap => {
         availabilityDoc = snap.exists() ? snap.data() : null;
-        serverConfirmedAvailability = availabilityDoc ? clone(availabilityDoc) : null;
+        serverConfirmedAvailability = !snap.metadata?.hasPendingWrites && !snap.metadata?.fromCache && availabilityDoc ? clone(availabilityDoc) : null;
         render();
       },
       err => {
@@ -612,8 +662,19 @@ function initDataSubscriptions() {
 // ----------------------------------------------------
 function handleAuthState() {
   onAuthStateChanged(auth, async user => {
-    authLoading = false;
+    const generation = ++authGeneration;
+    profileReadError='';
+    stopAllSubscriptions();
+    if (unsubUser) {unsubUser(); unsubUser=null;}
+    currentUserProfile=null;
+    accountsList=[]; requestsList=[]; availabilityDoc=null;
+    serverConfirmedWorking=null; serverConfirmedAvailability=null;
+    publishedTimetable=null; currentRevision=0;
+    workingDraft=normalizeState(clone(SEED)); state=clone(workingDraft);
+    activeVersion='draft'; showPublished=false;
+    authLoading = Boolean(user);
     currentUser = user;
+    render();
     if (!user) {
       currentUserProfile = null;
       stopAllSubscriptions();
@@ -628,6 +689,7 @@ function handleAuthState() {
     if (email === OWNER_EMAIL && !isQuotaExhausted()) {
       try {
         const uDoc = await getDoc(doc(db, 'users', email));
+        if(generation!==authGeneration)return;
         if (!uDoc.exists()) {
           await setDoc(doc(db, 'users', email), {
             email,
@@ -644,11 +706,13 @@ function handleAuthState() {
       }
     }
 
+    if (generation !== authGeneration) return;
     // Subscribe to current user profile
     if (unsubUser) unsubUser();
     unsubUser = onSnapshot(
       doc(db, 'users', email),
       docSnap => {
+        authLoading=false;
         if (!docSnap.exists()) {
           // User authenticated with Google but not yet in database
           currentUserProfile = null;
@@ -665,7 +729,9 @@ function handleAuthState() {
           return;
         }
 
-        const isFirstLoad = !currentUserProfile;
+        const previousAccess = currentUserProfile ? JSON.stringify([currentUserProfile.active,currentUserProfile.role,currentUserProfile.teacherId,currentUserProfile.homeroomClassIds,currentUserProfile.isVisiting]) : null;
+        const nextAccess = JSON.stringify([data.active,data.role,data.teacherId,data.homeroomClassIds,data.isVisiting]);
+        const isFirstLoad = previousAccess !== nextAccess;
         currentUserProfile = data;
 
         if (isFirstLoad) {
@@ -682,6 +748,9 @@ function handleAuthState() {
         render();
       },
       err => {
+        if(generation!==authGeneration)return;
+        authLoading=false;
+        profileReadError='Không tải được hồ sơ tài khoản. Vui lòng kiểm tra kết nối hoặc thử lại sau. ('+(err.code || 'unknown')+')';
         console.error('User subscription error:', err);
         currentUserProfile = null;
         render();
@@ -765,7 +834,7 @@ function renderAdminWorkspace() {
           <div class="dashboard-hero">
             <span class="hero-tag">BẢNG ĐIỀU KHIỂN QUẢN TRỊ</span>
             <h2>Xin chào, ${esc(currentUserProfile?.displayName || currentUser?.email)}</h2>
-            <p>Hệ thống thời khóa biểu toàn trường đang hoạt động. Cập nhật mới nhất lúc: ${esc(fmt(workingDraft.updatedAt || new Date()))}.</p>
+            <p>Hệ thống thời khóa biểu toàn trường đang hoạt động. Cập nhật mới nhất lúc: ${esc(fmt(workingDraft.updatedAt))}.</p>
             <div class="hero-tags">
               <span class="hero-tag">Trường: ${esc(state.school?.name || 'Trường THCS & THPT')}</span>
               <span class="hero-tag">${esc(state.school?.year || '2026-2027')} · ${esc(state.school?.term || 'HK1')}</span>
@@ -2195,7 +2264,10 @@ function settings() {
 
       <section class="card">
         <h2>Sao lưu & Chuyển dữ liệu</h2>
-        <p>Hệ thống tự động đồng bộ lên Cloud Firestore. Bạn có thể xuất bản sao lưu JSON để lưu trữ hoặc chuyển đổi máy.</p>
+        <p>Bản thử dùng Firebase để đăng nhập, Supabase để đồng bộ dữ liệu chung mỗi 15 giây. Dữ liệu cùng ô được kiểm tra xung đột trước khi lưu.</p>
+        ${isAdmin() ? '<div class="dialog-actions"><button data-action="backup-all">Tải toàn bộ dữ liệu JSON</button><button data-action="backup-drive">Sao lưu lên Google Drive</button><button data-action="csv-drive">Xuất CSV lên Drive</button></div>' : ''}
+        ${isOwner() ? '<button data-action="import-migration">Nhập tệp chuyển đổi vào Supabase trống</button>' : ''}
+        <p>Hệ thống đồng bộ dữ liệu dùng chung lên Supabase. Bạn có thể xuất bản sao lưu JSON để lưu trữ hoặc chuyển đổi máy.</p>
         <div class="button-row">
           <button class="primary" data-action="backup">↓ Tải bản sao lưu JSON</button>
           ${isSchedulerRole() ? '<button data-action="import">↑ Nhập JSON mới / app cũ</button>' : ''}
@@ -2209,7 +2281,8 @@ function settings() {
 // ----------------------------------------------------
 // Main Master Render Dispatcher
 // ----------------------------------------------------
-function render() {
+export function render() {
+  recordCurrentScrollPositions();
   // 1. Loading
   if (authLoading) {
     app.innerHTML = `
@@ -2259,6 +2332,9 @@ function render() {
     return;
   }
 
+  if(profileReadError){
+    app.innerHTML='<div class="auth-overlay"><div class="login-card"><h1>Chưa tải được tài khoản</h1><p>'+esc(profileReadError)+'</p><button data-action="logout">Đăng xuất</button></div></div>';return;
+  }
   // 3. User logged in but no profile exists in database -> Onboarding Flow
   if (!currentUserProfile) {
     app.innerHTML = `
@@ -2442,6 +2518,7 @@ function render() {
       </main>
     </div>
   `;
+  restoreCurrentScrollPositions();
 }
 
 // ----------------------------------------------------
@@ -2822,6 +2899,7 @@ function openTeacherImportPreviewModal({ fileName, parsedTeachers }) {
 }
 
 function cellEditor(classId, timeSlotId) {
+  recordCurrentScrollPositions();
   if (!canEditWorking()) {
     toast('Chỉ Người xếp lịch hoặc Quản trị viên mới được sửa ô ở bản nháp.');
     return;
@@ -3124,6 +3202,32 @@ function respondRequestDialog(requestId, decision) {
 // Global Event Listeners & Actions
 // ----------------------------------------------------
 const actions = {
+  'backup-all': async () => {
+    if(!isAdmin())return;
+    const full=await cloudBackup();download('tkb-toan-bo-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(full,null,2));toast('Đã tải bản sao toàn bộ dữ liệu.');
+  },
+  'backup-drive': async () => {
+    if(!isAdmin())return;
+    const token=await authorizeDrive();
+    const full=await cloudBackup();
+    const content=JSON.stringify(full,null,2),name='TKB-sao-luu-'+new Date().toISOString().replaceAll(':','-')+'.json';
+    download(name,content);
+    const file=await saveDriveFile({token,name,content});
+    toast('Đã lưu bản sao trên Google Drive: '+file.name);
+  },
+  'csv-drive': async () => {
+    const token=await authorizeDrive();
+    const file=await saveDriveFile({token,name:'TKB-'+new Date().toISOString().slice(0,10)+'.csv',content:exportCsv(displayed()),mimeType:'text/csv'});
+    toast('Đã xuất lịch lên Drive: '+file.name);
+  },
+  'import-migration': () => {
+    if(!isOwner())return;
+    const input=document.createElement('input');input.type='file';input.accept='.json,application/json';
+    input.onchange=async()=>{const file=input.files?.[0];if(!file)return;
+      try{const payload=JSON.parse(await file.text());if(!confirm('Nhập dữ liệu vào dự án Supabase thử nghiệm? Chỉ thực hiện khi chưa có dữ liệu lịch.'))return;
+      const result=await importMigration(payload);toast('Đã nhập '+result.imported+' tài liệu. Đang tải lại...');location.reload();}catch(e){toast(e.message);}};
+    input.click();
+  },
   close: () => dialog.close(),
   login: async () => {
     authError = '';
@@ -3147,6 +3251,7 @@ const actions = {
   print: () => window.print(),
   csv: () => download('thoi-khoa-bieu.csv', exportCsv(displayed()), 'text/csv;charset=utf-8'),
   density: () => {
+    recordCurrentScrollPositions();
     compact = !compact;
     render();
   },
@@ -3277,19 +3382,23 @@ const actions = {
     }
   },
   'set-tray-top': () => {
+    recordCurrentScrollPositions();
     trayPosition = 'top';
     render();
   },
   'set-tray-right': () => {
+    recordCurrentScrollPositions();
     trayPosition = 'right';
     render();
   },
   'disarm-card': () => {
+    recordCurrentScrollPositions();
     armedCard = null;
     render();
     toast('Đã hủy chọn cọ thẻ.');
   },
   'toggle-arm-card': element => {
+    recordCurrentScrollPositions();
     const card = element.dataset?.trayCard ? element : element.closest('[data-tray-card]');
     if (!card) return;
     const classId = card.dataset.class;
@@ -3307,6 +3416,7 @@ const actions = {
     render();
   },
   'assign-popover-suggestion': async element => {
+    recordCurrentScrollPositions();
     const classId = element.dataset.class;
     const timeSlotId = element.dataset.slot;
     const day = Number(element.dataset.day);
@@ -3345,6 +3455,7 @@ const actions = {
     }
   },
   'popover-clear-slot': async element => {
+    recordCurrentScrollPositions();
     const classId = element.dataset.class;
     const timeSlotId = element.dataset.slot;
     const day = Number(element.dataset.day);
@@ -3488,6 +3599,7 @@ const actions = {
     }
   },
   'popover-unassign': async element => {
+    recordCurrentScrollPositions();
     if (!canEditWorking()) {
       toast('Bản lịch đã chốt hoặc bạn không có quyền sửa đổi bản nháp.');
       return;
@@ -3507,6 +3619,7 @@ const actions = {
     }
   },
   'brush-eraser': () => {
+    recordCurrentScrollPositions();
     brushMode = (brushMode === 'eraser' ? 'none' : 'eraser');
     if (brushMode === 'eraser') selectedTeacherHighlight = '';
     render();
@@ -3517,6 +3630,7 @@ const actions = {
     }
   },
   'brush-off': () => {
+    recordCurrentScrollPositions();
     brushMode = 'none';
     brushTeacherId = '';
     selectedTeacherHighlight = '';
@@ -3524,6 +3638,7 @@ const actions = {
     toast('Đã tắt chế độ cọ.');
   },
   'clear-highlight': () => {
+    recordCurrentScrollPositions();
     selectedTeacherHighlight = '';
     if (brushMode !== 'brush') brushTeacherId = '';
     render();
@@ -3624,7 +3739,10 @@ document.addEventListener('click', async event => {
     return;
   }
   if (element.dataset.action && actions[element.dataset.action]) {
-    await actions[element.dataset.action](element);
+    const action=element.dataset.action;
+    if(pendingActions.has(action)||isWriting())return;
+    pendingActions.add(action);
+    try{await actions[action](element);}catch(error){checkAndFlagQuotaError(error);toast(error.message || 'Không thể hoàn tất thao tác.');}finally{pendingActions.delete(action);}
     return;
   }
   if (element.dataset.view) {
@@ -3691,11 +3809,13 @@ document.addEventListener('click', async event => {
     return;
   }
   if (element.dataset.setMatrixMode) {
+    recordCurrentScrollPositions();
     matrixViewMode = element.dataset.setMatrixMode;
     render();
     return;
   }
   if (element.dataset.popoverSelectTeacher || element.closest('[data-popover-select-teacher]')) {
+    recordCurrentScrollPositions();
     const btn = element.dataset.popoverSelectTeacher ? element : element.closest('[data-popover-select-teacher]');
     const teacherId = btn.dataset.popoverSelectTeacher;
     const classId = btn.dataset.class;
@@ -3716,6 +3836,7 @@ document.addEventListener('click', async event => {
     return;
   }
   if (element.dataset.assignCell || element.closest('[data-assign-cell]')) {
+    recordCurrentScrollPositions();
     const target = element.dataset.assignCell ? element : element.closest('[data-assign-cell]');
     const classId = target.dataset.assignClass;
     const subjectId = target.dataset.assignSubject;
@@ -3746,6 +3867,7 @@ document.addEventListener('click', async event => {
     return;
   }
   if (element.dataset.selectTeacher || element.closest('[data-select-teacher]')) {
+    recordCurrentScrollPositions();
     const card = element.dataset.selectTeacher ? element : element.closest('[data-select-teacher]');
     if (card && !element.closest('button[data-edit], button[data-delete]')) {
       const teacherId = card.dataset.selectTeacher;
@@ -3767,6 +3889,7 @@ document.addEventListener('click', async event => {
   }
 
   if (element.dataset.selectTrayClass || element.closest('[data-select-tray-class]')) {
+    recordCurrentScrollPositions();
     const el = element.dataset.selectTrayClass ? element : element.closest('[data-select-tray-class]');
     traySelectedClassId = el.dataset.selectTrayClass;
     render();
@@ -3774,6 +3897,7 @@ document.addEventListener('click', async event => {
   }
 
   if (element.dataset.cellClass || element.closest('[data-cell-class]')) {
+    recordCurrentScrollPositions();
     const cellBtn = element.dataset.cellClass ? element : element.closest('[data-cell-class]');
     const classId = cellBtn.dataset.cellClass;
     const timeSlotId = cellBtn.dataset.cellSlot;
@@ -3955,6 +4079,7 @@ document.addEventListener('change', event => {
     if (qIn && selSub) qIn.value = `${selSub.name}${teaIn?.value ? ' - ' + teaIn.value : ''}`;
   }
   if (event.target.id === 'brush-teacher-select') {
+    recordCurrentScrollPositions();
     brushTeacherId = event.target.value;
     brushMode = brushTeacherId ? 'brush' : 'none';
     selectedTeacherHighlight = brushTeacherId;
@@ -4015,16 +4140,13 @@ document.addEventListener('input', event => {
   if (event.target.id === 'search') {
     const start = event.target.selectionStart;
     query = event.target.value;
-    const scroll = document.querySelector('.matrix-scroll');
-    const x = scroll?.scrollLeft || 0;
-    const y = scroll?.scrollTop || 0;
+    recordCurrentScrollPositions();
     render();
     const input = document.querySelector('#search');
     if (input) {
       input.focus();
       input.setSelectionRange(start, start);
     }
-    document.querySelector('.matrix-scroll')?.scrollTo(x, y);
   }
 });
 
@@ -4034,7 +4156,7 @@ document.addEventListener('submit', async event => {
   if (!form) return;
 
   // 5. Khóa nút và biểu mẫu khi đang lưu để tránh nhấp/gửi nhiều lần
-  if (form.dataset.submitting === 'true' || isGlobalSaving) {
+  if (form.dataset.submitting === 'true' || isGlobalSaving || isWriting()) {
     return;
   }
 
@@ -4044,6 +4166,7 @@ document.addEventListener('submit', async event => {
     return;
   }
 
+  isGlobalSaving=true;
   form.dataset.submitting = 'true';
   const submitBtns = form.querySelectorAll('button[type="submit"], input[type="submit"], button:not([type="button"])');
   submitBtns.forEach(btn => {
@@ -4099,6 +4222,7 @@ document.addEventListener('submit', async event => {
       };
       render();
     } else if (form.id === 'cell-form') {
+      recordCurrentScrollPositions();
       const classId = form.dataset.class;
       const timeSlotId = form.dataset.slot;
 
@@ -4316,6 +4440,7 @@ document.addEventListener('submit', async event => {
     if (output) output.textContent = error.message;
     else toast(error.message);
   } finally {
+    isGlobalSaving=false;
     form.dataset.submitting = 'false';
     submitBtns.forEach(btn => {
       btn.disabled = false;
@@ -4329,6 +4454,7 @@ document.addEventListener('submit', async event => {
 // ----------------------------------------------------
 document.addEventListener('change', event => {
   if (event.target.id === 'tray-class-select') {
+    recordCurrentScrollPositions();
     traySelectedClassId = event.target.value;
     render();
   }
@@ -4372,6 +4498,7 @@ document.addEventListener('drop', async event => {
   const cell = event.target.closest('[data-cell-drop]');
   if (!cell) return;
   event.preventDefault();
+  recordCurrentScrollPositions();
   cell.classList.remove('cell-dragover');
 
   if (!canEditWorking()) {
@@ -4421,7 +4548,39 @@ document.addEventListener('drop', async event => {
   }
 });
 
+// ----------------------------------------------------
+// Real-time Scroll Position Tracking (Capture Phase)
+// ----------------------------------------------------
+document.addEventListener('scroll', event => {
+  const target = event.target;
+  if (!target) return;
+  if (target.id === 'matrix-scroll-container' || target.classList?.contains('matrix-scroll')) {
+    if (matrixViewMode === 'assignment') {
+      matrixScrollPositions.assignment.left = target.scrollLeft;
+      matrixScrollPositions.assignment.top = target.scrollTop;
+    } else if (matrixViewMode === 'timetable') {
+      matrixScrollPositions.timetable.left = target.scrollLeft;
+      matrixScrollPositions.timetable.top = target.scrollTop;
+    }
+  } else if (target.classList?.contains('tray-cards-container') || target.classList?.contains('timetable-tray-sidebar')) {
+    savedTrayScrollLeft = target.scrollLeft;
+    savedTrayScrollTop = target.scrollTop;
+  } else if (target.classList?.contains('workspace')) {
+    savedWorkspaceScrollTop = target.scrollTop;
+  }
+}, { capture: true, passive: true });
+
+window.addEventListener('scroll', () => {
+  savedWindowScrollX = window.scrollX || window.pageXOffset || 0;
+  savedWindowScrollY = window.scrollY || window.pageYOffset || 0;
+}, { passive: true });
+
 // Run initial connection test and start Auth listener
-testConnection();
-handleAuthState();
+testConnection().then(health=>{
+  if(!health.configured){
+    app.innerHTML='<div class="auth-overlay"><div class="login-card"><span class="brand-icon">▦</span><h1>Bản thử kết nối Supabase</h1><p>Bản thử đã sẵn sàng nhưng chưa có nơi lưu dữ liệu.</p><p>Tạo dự án Supabase miễn phí, chạy tệp thiết lập SQL và đặt cấu hình máy chủ theo HƯỚNG DẪN trong gói tải về.</p><p>App chính và dữ liệu Firebase hiện tại vẫn được giữ nguyên.</p></div></div>';return;
+  }
+  handleAuthState();
+}).catch(()=>{app.innerHTML='<div class="auth-overlay"><div class="login-card"><h1>Chưa kết nối được máy chủ thử nghiệm</h1><p>Khởi động máy chủ API rồi tải lại trang. Chưa có dữ liệu nào được chuyển.</p></div></div>';});
+
 

@@ -667,3 +667,12 @@ test('31. Xóa các tiết cố định TA ESL và CLB theo đúng yêu cầu ng
 });
 
 
+
+test('cloud backup without schemaVersion is accepted only with complete timetable structure', () => {
+ const source=clone(SEED);delete source.schemaVersion;
+ const restored=parseBackup(source,SEED);
+ assert.equal(restored.schemaVersion,1);
+ assert.deepEqual(restored.timetableCells,source.timetableCells);
+ assert.throws(()=>parseBackup({...source,schemaVersion:99},SEED),/chưa được hỗ trợ/);
+ assert.throws(()=>parseBackup({school:source.school},SEED),/chưa được hỗ trợ/);
+});

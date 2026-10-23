@@ -168,8 +168,11 @@ test('37. removeLessonFromScheduleCell xóa đúng tiết khỏi draftSchedule v
   assert.ok(!cleared.timetableCells.some(c => c.classId === 'cls_6a1' && c.timeSlotId === 'ts_d2_m_2'));
 });
 
-test('38. normalizeState khởi tạo và duy trì currentWeek, weekDates cho school và weekInfo cho classes', () => {
-  const state = normalizeState(clone(SEED));
+test('38. normalizeState bảo toàn currentWeek, weekDates cho school và weekInfo cho classes', () => {
+  const input=clone(SEED);
+  input.school.currentWeek='Tuần 10'; input.school.weekDates='19/10 - 23/10/2026';
+  input.classes=input.classes.map(c=>({...c,weekInfo:{week:'Tuần 10',dates:'19/10 - 23/10/2026'}}));
+  const state=normalizeState(input);
   assert.ok(state.school.currentWeek, 'School should have currentWeek');
   assert.ok(state.school.weekDates, 'School should have weekDates');
   for (const c of state.classes) {

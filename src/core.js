@@ -1,3 +1,4 @@
+import { contentSignature } from './write-gate.js';
 export const uid = () => globalThis.crypto.randomUUID();
 export const clone = value => structuredClone(value);
 export const keyOf = (classId, timeSlotId) => `${classId}::${timeSlotId}`;
@@ -386,10 +387,24 @@ export function normalizeState(state) {
 
   state.activeVersion = state.activeVersion || 'draft';
 
+  if (state.school) {
+    if (!state.school.currentWeek) state.school.currentWeek = 'Tuần 1';
+    if (!state.school.weekDates) state.school.weekDates = '05/09 - 10/09/2026';
+  }
+
   if (Array.isArray(state.classes)) {
     for (const c of state.classes) {
       if (c.homeroomTeacherId === undefined) {
         c.homeroomTeacherId = null;
+      }
+      if (!c.weekInfo) {
+        c.weekInfo = {
+          week: state.school?.currentWeek || 'Tuần 1',
+          dates: state.school?.weekDates || '05/09 - 10/09/2026'
+        };
+      } else {
+        if (!c.weekInfo.week) c.weekInfo.week = state.school?.currentWeek || 'Tuần 1';
+        if (!c.weekInfo.dates) c.weekInfo.dates = state.school?.weekDates || '05/09 - 10/09/2026';
       }
     }
   }
@@ -601,6 +616,11 @@ export function parseBackup(raw, seed) {
       published: null
     };
   } else {
+    // Earlier cloud exports omit schemaVersion; still run the full validation below.
+    if (data.schemaVersion === undefined && data.school &&
+        ['classes', 'subjects', 'teachers', 'timeSlots', 'timetableCells'].every(key => Array.isArray(data[key]))) {
+      data.schemaVersion = 1;
+    }
     if (data.schemaVersion !== 1) throw Error('Phiên bản tệp sao lưu chưa được hỗ trợ.');
     state = data;
     for (const version of state.versions || []) validateSnapshot(version);
@@ -998,159 +1018,18 @@ export const TEACHER_TEMPLATE_ROWS = [
   { 'STT': 6, 'Mã GV': '', 'Họ và tên': 'Đặng Thu Hà (Tự sinh mã)', 'Số điện thoại': '0978901234', 'Email': 'ha.dang@truong.edu.vn', 'Ghi chú / Môn dạy': 'Sinh học' }
 ];
 
-export function areTimetablesContentEqual(a, b) {
-  if (a === b) return true;
-  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
-
-  // 1. School
-  const sa = a.school || {};
-  const sb = b.school || {};
-  if (
-    (sa.name || '').trim() !== (sb.name || '').trim() ||
-    (sa.year || '').trim() !== (sb.year || '').trim() ||
-    (sa.term || '').trim() !== (sb.term || '').trim()
-  ) {
-    return false;
-  }
-
-  // 2. Classes
-  const ca = a.classes || [];
-  const cb = b.classes || [];
-  if (ca.length !== cb.length) return false;
-  const mapClassesA = new Map(ca.map(c => [c.id, c]));
-  for (const c of cb) {
-    const match = mapClassesA.get(c.id);
-    if (!match) return false;
-    if (
-      match.code !== c.code ||
-      match.name !== c.name ||
-      Number(match.grade) !== Number(c.grade) ||
-      (match.homeroomTeacherId || null) !== (c.homeroomTeacherId || null) ||
-      (match.coHomeroomTeacherId || null) !== (c.coHomeroomTeacherId || null)
-    ) {
-      return false;
-    }
-  }
-
-  // 3. Subjects
-  const subA = a.subjects || [];
-  const subB = b.subjects || [];
-  if (subA.length !== subB.length) return false;
-  const mapSubA = new Map(subA.map(s => [s.id, s]));
-  for (const s of subB) {
-    const match = mapSubA.get(s.id);
-    if (!match) return false;
-    if (
-      match.code !== s.code ||
-      match.name !== s.name ||
-      (match.color || '') !== (s.color || '')
-    ) {
-      return false;
-    }
-  }
-
-  // 4. Teachers
-  const teaA = a.teachers || [];
-  const teaB = b.teachers || [];
-  if (teaA.length !== teaB.length) return false;
-  const mapTeaA = new Map(teaA.map(t => [t.id, t]));
-  for (const t of teaB) {
-    const match = mapTeaA.get(t.id);
-    if (!match) return false;
-    const matchName = match.fullName || match.name || '';
-    const tName = t.fullName || t.name || '';
-    if (
-      match.code !== t.code ||
-      matchName !== tName ||
-      (match.phone || '') !== (t.phone || '') ||
-      (match.note || '') !== (t.note || '')
-    ) {
-      return false;
-    }
-    const asgnA = (match.assignments || []).map(as => `${as.classId}::${as.subjectId}`).sort().join('|');
-    const asgnB = (t.assignments || []).map(as => `${as.classId}::${as.subjectId}`).sort().join('|');
-    if (asgnA !== asgnB) return false;
-  }
-
-  // 5. Timetable cells
-  const cellsA = a.timetableCells || [];
-  const cellsB = b.timetableCells || [];
-  if (cellsA.length !== cellsB.length) return false;
-  const mapCellsA = new Map(cellsA.map(c => [`${c.classId}::${c.timeSlotId}`, c]));
-  for (const c of cellsB) {
-    const match = mapCellsA.get(`${c.classId}::${c.timeSlotId}`);
-    if (!match) return false;
-    if (
-      match.subjectId !== c.subjectId ||
-      (match.teacherId || '') !== (c.teacherId || '') ||
-      Boolean(match.locked) !== Boolean(c.locked) ||
-      (match.note || '').trim() !== (c.note || '').trim()
-    ) {
-      return false;
-    }
-  }
-
-  // 6. Draft assignments
-  const daA = a.draftAssignments || [];
-  const daB = b.draftAssignments || [];
-  if (daA.length !== daB.length) return false;
-  const setDaA = new Set(daA.map(item => `${item.classId}::${item.subjectId}::${item.teacherId || ''}`));
-  for (const item of daB) {
-    if (!setDaA.has(`${item.classId}::${item.subjectId}::${item.teacherId || ''}`)) return false;
-  }
-
-  // 7. Draft schedule
-  const schA = a.draftSchedule || [];
-  const schB = b.draftSchedule || [];
-  if (schA.length !== schB.length) return false;
-  const keyOfSlot = c => c.timeSlotId ? `${c.classId}::${c.timeSlotId}` : `${c.classId}::${c.day}::${c.period}`;
-  const mapSchA = new Map(schA.map(c => [keyOfSlot(c), c]));
-  for (const c of schB) {
-    const match = mapSchA.get(keyOfSlot(c));
-    if (!match) return false;
-    if (
-      match.subjectId !== c.subjectId ||
-      (match.teacherId || '') !== (c.teacherId || '') ||
-      Boolean(match.locked) !== Boolean(c.locked) ||
-      (match.note || '').trim() !== (c.note || '').trim()
-    ) {
-      return false;
-    }
-  }
-
-  // 8. Published assignments & schedule
-  const paA = a.publishedAssignments || [];
-  const paB = b.publishedAssignments || [];
-  if (paA.length !== paB.length) return false;
-  const setPaA = new Set(paA.map(item => `${item.classId}::${item.subjectId}::${item.teacherId || ''}`));
-  for (const item of paB) {
-    if (!setPaA.has(`${item.classId}::${item.subjectId}::${item.teacherId || ''}`)) return false;
-  }
-
-  const psA = a.publishedSchedule || [];
-  const psB = b.publishedSchedule || [];
-  if (psA.length !== psB.length) return false;
-  const mapPsA = new Map(psA.map(c => [keyOfSlot(c), c]));
-  for (const c of psB) {
-    const match = mapPsA.get(keyOfSlot(c));
-    if (!match) return false;
-    if (
-      match.subjectId !== c.subjectId ||
-      (match.teacherId || '') !== (c.teacherId || '') ||
-      Boolean(match.locked) !== Boolean(c.locked) ||
-      (match.note || '').trim() !== (c.note || '').trim()
-    ) {
-      return false;
-    }
-  }
-
-  return true;
+export function areTimetablesContentEqual(a,b) {
+  if(a===b)return true;
+  if(!a||!b)return false;
+  return contentSignature(normalizeState(a))===contentSignature(normalizeState(b));
 }
 
 export function arePublishedContentEqual(existingPublishedData, newPublishedData) {
   if (existingPublishedData === newPublishedData) return true;
   if (!existingPublishedData || !newPublishedData) return false;
-  return areTimetablesContentEqual(existingPublishedData, newPublishedData);
+  const keys=['school','classes','subjects','teachers','timeSlots','timetableCells'];
+  const pick=value=>Object.fromEntries(keys.map(key=>[key,structuredClone(value[key] || (key==='school'?{}:[]))]));
+  return areTimetablesContentEqual(pick(existingPublishedData),pick(newPublishedData));
 }
 
 export function areAvailabilitiesEqual(a, b) {
@@ -1211,4 +1090,5 @@ export function isQuotaExhaustedError(err) {
     msg.includes('vượt hạn mức')
   );
 }
+
 

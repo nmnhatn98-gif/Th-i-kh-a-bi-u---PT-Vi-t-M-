@@ -1,0 +1,8 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {generateKeyPairSync,sign} from 'node:crypto';import {createFirebaseVerifier} from '../server/auth.mjs';
+const {publicKey,privateKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+const now=1800000000000,seconds=now/1000;
+function token(patch={},header={alg:'RS256',kid:'key-1'}){const parts=[header,{aud:'project-one',iss:'https://securetoken.google.com/project-one',sub:'uid',email:'Owner@Example.com',email_verified:true,iat:seconds-1,auth_time:seconds-10,exp:seconds+3600,...patch}].map(v=>Buffer.from(JSON.stringify(v)).toString('base64url'));return [...parts,sign('RSA-SHA256',Buffer.from(parts.join('.')),privateKey).toString('base64url')].join('.');}
+function verifier(){return createFirebaseVerifier('project-one',{now:()=>now,fetchFn:async()=>({ok:true,headers:new Headers({'cache-control':'max-age=300'}),json:async()=>({'key-1':publicKey.export({type:'spki',format:'pem'})})})});}
+test('verifies Firebase token signature, project and verified email',async()=>{assert.deepEqual(await verifier()(token()),{uid:'uid',email:'owner@example.com'});});
+for(const [name,patch]of Object.entries({expired:{exp:seconds-1},wrongProject:{aud:'other'},unverified:{email_verified:false},future:{iat:seconds+100},wrongIssuer:{iss:'https://attacker.example'},emptyUid:{sub:''}}))test('rejects '+name,async()=>assert.rejects(verifier()(token(patch)),e=>e.status===401));
+test('rejects tampered token and algorithm substitution',async()=>{const original=token(),parts=original.split('.');parts[1]=Buffer.from(JSON.stringify({email:'attacker@example.com'})).toString('base64url');await assert.rejects(verifier()(parts.join('.')));await assert.rejects(verifier()(token({},{alg:'none',kid:'key-1'})));});

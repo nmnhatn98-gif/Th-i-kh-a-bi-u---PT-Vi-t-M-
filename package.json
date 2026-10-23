@@ -1,16 +1,17 @@
 {
-  "name": "react-example",
+  "name": "tkb-firebase-supabase-drive-trial",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev": "node scripts/dev.mjs",
     "start": "node server.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test tests/*.test.mjs",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "dev:api": "node server.mjs --api-only"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
