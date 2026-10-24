@@ -22,7 +22,8 @@ export function createService({store,verifyToken,ownerEmail}){
      const current=await store.get(collection,id);
      const reference=base===undefined?current.data:base;
      let next=operation==='delete'?null:operation==='patch'?mergeFields(reference,data):body.merge?mergeFields(reference,data):data;
-     if(current.version!==expectedVersion){
+     if(body.partialBase && !(collection==='timetables'&&id==='working'&&operation==='patch'&&base&&typeof base==='object'&&!Array.isArray(base)))throw fail(400,'Yêu cầu cập nhật rút gọn không hợp lệ.');
+     if(current.version!==expectedVersion||body.partialBase){
        if(base===undefined)throw fail(409,'Dữ liệu đã đổi; hãy tải lại trước khi lưu.','conflict');
        next=mergeChanges(base,next,current.data);
      }

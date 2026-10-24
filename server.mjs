@@ -1,3 +1,4 @@
+import {gzipSync} from 'node:zlib';
 import http from 'node:http';import path from 'node:path';import {fileURLToPath} from 'node:url';import {readFile,stat} from 'node:fs/promises';import {createHash} from 'node:crypto';
 import {createFirebaseVerifier} from './server/auth.mjs';import {SupabaseStore} from './server/supabase.mjs';import {createService} from './server/service.mjs';
 const root=path.dirname(fileURLToPath(import.meta.url));
@@ -6,7 +7,7 @@ const url=process.env.SUPABASE_URL||'',key=process.env.SUPABASE_SERVICE_ROLE_KEY
 if(url&&!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(url))throw Error('SUPABASE_URL phải là URL HTTPS của dự án Supabase.');
 const service=url&&key?createService({store:new SupabaseStore(url,key),verifyToken:createFirebaseVerifier(project),ownerEmail:owner}):null;
 const mime={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon'};
-function send(res,status,value){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(value));}
+function send(res,status,value){let body=Buffer.from(JSON.stringify(value));const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',Vary:'Accept-Encoding'};if(body.length>4096&&/\bgzip\b/.test(res.req?.headers['accept-encoding']||'')){body=gzipSync(body,{level:3});headers['Content-Encoding']='gzip';}res.writeHead(status,headers);res.end(body);}
 async function body(req){const chunks=[];let bytes=0;for await(const chunk of req){bytes+=chunk.length;if(bytes>10*1024*1024)throw Object.assign(Error('Tệp quá lớn, giới hạn thử nghiệm 10 MB.'),{status:413});chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString());}catch{throw Object.assign(Error('Nội dung JSON không hợp lệ.'),{status:400});}}
 const server=http.createServer(async(req,res)=>{
  try{

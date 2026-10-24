@@ -1,3 +1,4 @@
+import {compactWorkingWrite} from './working-patch.js';
 import {WriteGate,mergeFields} from './write-gate.js';
 export function createCloudAdapter({request,getToken,pollMs=15000,setTimer=setInterval,clearTimer=clearInterval,shouldPoll=()=>true}){
  const gate=new WriteGate(),rows=new Map();
@@ -27,7 +28,8 @@ export function createCloudAdapter({request,getToken,pollMs=15000,setTimer=setIn
    const next=operation==='delete'?null:operation==='patch'||options.merge?mergeFields(before.data,data):data;
    let actual;
    const result=await gate.run(ref.path,next,async()=>{
-    actual=await call('/api/data',{method:'POST',body:JSON.stringify({collection:ref.collection,id:ref.id,operation,data,merge:Boolean(options.merge),base:before.data,expectedVersion:before.version,...(options.expectedRevision===undefined?{}:{expectedRevision:options.expectedRevision})})});
+    const compact=options.expectedRevision!==undefined&&operation==='set'?compactWorkingWrite(before.data,next):null;
+    actual=await call('/api/data',{method:'POST',body:JSON.stringify({collection:ref.collection,id:ref.id,operation,data,merge:Boolean(options.merge),base:before.data,expectedVersion:before.version,...(options.expectedRevision===undefined?{}:{expectedRevision:options.expectedRevision}),...(compact||{})})});
     if(generation===gate.generation&&rows.get(ref.path)?.version===before.version)observe(ref,actual);
     return actual;
    });

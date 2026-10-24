@@ -1,3 +1,4 @@
+import {cellLessons,allLessons,subjectTrack,subjectsForClass,lessonBusy} from './core.js';
 import { saveDriveFile } from './drive-backup.js';
 import { contentSignature } from './write-gate.js';
 import * as XLSX from 'xlsx';
@@ -34,8 +35,20 @@ import {
   arePublishedContentEqual,
   areAvailabilitiesEqual,
   areUserProfilesEqual,
-  isQuotaExhaustedError
+  isQuotaExhaustedError,
+  computeExportFileName,
+  TEACHER_COLORS_43,
+  getTeacherColor,
+  toggleCellLock,
+  unlockAllFixedCells,
+  jointPartner,
+  assignSpecialActivity,
+  resetMondayFlagCeremony,
+  recordChange,
+  undoChange,
+  formatHistoryTime
 } from './core.js';
+import html2canvas from 'html2canvas';
 import {
   auth,
   db,
@@ -193,6 +206,8 @@ let showPublished = false;
 // Sub-view specific filters
 let selectedHomeroomClassId = '';
 let personalViewMode = 'week'; // 'week' | 'day'
+let homeroomExportTrack = 'XH'; // 'XH' | 'TN' | 'ALL'
+let homeroomShowTeacher = false; // default false (pure subject name for student view)
 
 // Auth & Permissions
 let currentUser = null;
@@ -375,6 +390,7 @@ async function syncWorkingToCloud(nextState) {
       lastPublishedAt: normalized.lastPublishedAt || null,
       activeVersion: normalized.activeVersion || activeVersion,
       versions: normalized.versions || [],
+      changeHistory: normalized.changeHistory || [],
       updatedAt: new Date().toISOString(),
       updatedBy: currentUser?.email || 'admin'
     };
@@ -790,7 +806,7 @@ function displayed() {
 
 function getTeacherLessons(teacherId, sourceData = displayed()) {
   if (!teacherId || !sourceData?.timetableCells) return [];
-  return sourceData.timetableCells
+  return allLessons(sourceData)
     .filter(c => c.teacherId === teacherId)
     .map(c => {
       const slot = (sourceData.timeSlots || []).find(s => s.id === c.timeSlotId);
@@ -817,6 +833,7 @@ function renderAdminWorkspace() {
   const adminMenu = [
     ['overview', '📊', 'Tổng quan'],
     ['matrix', '▦', 'Thời khóa biểu toàn trường'],
+    ['homeroom_class', '🖼️', 'Xuất TKB học sinh VASchools'],
     ['catalog', '▤', 'Danh mục (Lớp/Môn/GV)'],
     ['accounts', '👥', 'Quản lý tài khoản & Quyền'],
     ['pending', '📋', `Hồ sơ GV chờ xác nhận ${pendingProfiles.length ? `<b class="badge">${pendingProfiles.length}</b>` : ''}`],
@@ -897,6 +914,7 @@ function renderAdminWorkspace() {
       if (view === 'versions') return versionsPage();
       if (view === 'backup') return settings();
       if (view === 'school') return renderSchoolPage();
+      if (view === 'homeroom_class') return renderHomeroomClassTimetable(s.classes || []);
       return renderMatrixSection(s);
     }
   };
@@ -911,6 +929,7 @@ function renderSchedulerWorkspace() {
 
   const schedulerMenu = [
     ['matrix', '▦', 'Ma trận toàn trường'],
+    ['homeroom_class', '🖼️', 'Xuất TKB học sinh VASchools'],
     ['conflicts', '◎', `Kiểm tra xung đột ${conflicts.length ? `<b class="badge">${conflicts.length}</b>` : ''}`],
     ['catalog', '▤', 'Danh mục phục vụ xếp lịch'],
     ['teacher_requests', '📩', `Lịch bận & Yêu cầu ${requestsList.filter(r => r.status === 'PENDING').length ? `<b class="badge">${requestsList.filter(r => r.status === 'PENDING').length}</b>` : ''}`],
@@ -922,6 +941,7 @@ function renderSchedulerWorkspace() {
     menu: schedulerMenu,
     content: () => {
       if (view === 'matrix') return renderMatrixSection(s);
+      if (view === 'homeroom_class') return renderHomeroomClassTimetable(s.classes || []);
       if (view === 'conflicts') return conflictPage();
       if (view === 'catalog') return catalog();
       if (view === 'teacher_requests') return renderSchedulerTeacherRequests();
@@ -949,7 +969,7 @@ function renderHomeroomWorkspace() {
     ['homeroom_overview', '🏠', 'Tổng quan lớp chủ nhiệm'],
     ['homeroom_class', '📅', 'Thời khóa biểu lớp chủ nhiệm'],
     ['my_teaching', '◷', 'Lịch giảng dạy của tôi'],
-    ['published_all', '▦', 'TKB toàn trường đã chốt'],
+    ['published_all', '▦', 'Lịch tiết học toàn trường (Đã chốt)'],
     ['profile', '👤', 'Hồ sơ của tôi'],
     ['submit_request', '✉️', 'Gửi yêu cầu điều chỉnh']
   ];
@@ -1105,7 +1125,8 @@ function renderVisitingWorkspace() {
 function renderRegularTeacherWorkspace() {
   const teacherMenu = [
     ['my_teaching', '◷', 'Lịch giảng dạy của tôi'],
-    ['published_all', '▦', 'TKB toàn trường đã chốt'],
+    ['homeroom_class', '🖼️', 'TKB lớp học (Mẫu VASchools)'],
+    ['published_all', '▦', 'Lịch tiết học toàn trường (Đã chốt)'],
     ['submit_request', '✉️', 'Gửi yêu cầu điều chỉnh'],
     ['profile', '👤', 'Hồ sơ của tôi']
   ];
@@ -1114,6 +1135,7 @@ function renderRegularTeacherWorkspace() {
     menu: teacherMenu,
     content: () => {
       if (view === 'my_teaching') return renderMyTeachingView();
+      if (view === 'homeroom_class') return renderHomeroomClassTimetable(state.classes || []);
       if (view === 'published_all') return renderMatrixSection(displayed());
       if (view === 'submit_request') return renderTeacherRequestSubmission();
       if (view === 'profile') return renderMyProfileView();
@@ -1123,90 +1145,221 @@ function renderRegularTeacherWorkspace() {
 }
 
 // ----------------------------------------------------
-// Sub-view: TKB Lớp chủ nhiệm
+// Sub-view: TKB Lớp học & Lớp chủ nhiệm (Khung chuẩn VASchools)
 // ----------------------------------------------------
 function renderHomeroomClassTimetable(homeroomClasses) {
-  if (!publishedTimetable || !publishedTimetable.isPublished) {
+  const pData = (publishedTimetable && publishedTimetable.isPublished && publishedTimetable.data)
+    ? publishedTimetable.data
+    : (state || workingDraft);
+
+  const availableClasses = (homeroomClasses && homeroomClasses.length > 0)
+    ? homeroomClasses
+    : (pData.classes || state.classes || []);
+
+  if (!availableClasses.length) {
     return `
       <div class="card" style="text-align:center;padding:50px 20px;">
         <span style="font-size:36px;display:block;margin-bottom:12px;">📅</span>
-        <h2>Chưa có thời khóa biểu đã chốt</h2>
-        <p>Nhà trường hiện chưa công bố bản thời khóa biểu chính thức.</p>
+        <h2>Chưa có danh sách lớp</h2>
+        <p>Hệ thống chưa ghi nhận thông tin lớp học nào trong danh mục.</p>
       </div>
     `;
   }
 
-  if (!homeroomClasses.length) {
-    return '<div class="alert">Tài khoản của bạn chưa được Quản trị viên xác nhận lớp chủ nhiệm. Vui lòng liên hệ nhà trường.</div>';
+  const activeClassId = selectedHomeroomClassId || availableClasses[0]?.id;
+  const currentClass = availableClasses.find(c => c.id === activeClassId) || availableClasses[0];
+  const isGrade11 = (currentClass.grade === 11) || /\b11\b/.test(currentClass.name || '') || /\b11\b/.test(currentClass.code || '');
+
+  const hrTeacher = (pData.teachers || state.teachers || []).find(t => t.id === currentClass.homeroomTeacherId);
+  const hrTeacherName = hrTeacher?.fullName || '';
+
+  const weekNum = (pData.school?.week || '').match(/\d+/)?.[0] || '11';
+  const dateRange = pData.school?.appliedDate || '26/10 - 30/10/2026';
+  const weekBadgeText = `Tuần ${weekNum}: ${dateRange}`;
+
+  let classTitleText = `LỚP ${esc(currentClass.name.replace(/^Lớp\s*/i, ''))}`;
+  if (isGrade11) {
+    if (homeroomExportTrack === 'XH') {
+      classTitleText = 'LỚP 11 - BAN XÃ HỘI';
+    } else if (homeroomExportTrack === 'TN') {
+      classTitleText = 'LỚP 11 - BAN TỰ NHIÊN';
+    } else {
+      classTitleText = 'LỚP 11 (TỰ NHIÊN & XÃ HỘI)';
+    }
   }
 
-  const activeClassId = selectedHomeroomClassId || homeroomClasses[0]?.id;
-  const currentClass = homeroomClasses.find(c => c.id === activeClassId) || homeroomClasses[0];
-  const pData = publishedTimetable.data;
-  const cellsMap = new Map((pData.timetableCells || []).filter(c => c.classId === currentClass.id).map(c => [c.timeSlotId, c]));
+  function getSlotLessons(day, session, period) {
+    const slot = (pData.timeSlots || []).find(s => s.dayOfWeek === day && s.session === session && s.period === period);
+    if (!slot) return [];
+    const cell = (pData.timetableCells || []).find(c => c.classId === currentClass.id && c.timeSlotId === slot.id) ||
+                 (pData.publishedSchedule || []).find(c => c.classId === currentClass.id && c.timeSlotId === slot.id);
+    if (!cell) return [];
+    let list = cellLessons(pData, cell);
+    if (isGrade11) {
+      if (homeroomExportTrack === 'XH') {
+        list = list.filter(l => l.track === 'XH' || l.track === 'COMMON' || !l.track);
+      } else if (homeroomExportTrack === 'TN') {
+        list = list.filter(l => l.track === 'TN' || l.track === 'COMMON' || !l.track);
+      }
+    }
+    return list;
+  }
 
-  let rows = '';
-  for (let day = 2; day <= 6; day++) {
-    const slots = (pData.timeSlots || []).filter(slot => slot.dayOfWeek === day).sort((a, b) => a.globalPeriod - b.globalPeriod);
-    slots.forEach((slot, i) => {
-      const cell = cellsMap.get(slot.id);
-      const subject = cell ? (pData.subjects || []).find(s => s.id === cell.subjectId) : null;
-      const teacherName = cell ? text(pData.teachers || [], cell.teacherId, 'fullName') : '';
+  const morningDefs = [
+    { period: 1, label: 'Tiết 1', time: '(7h45 - 8h30)' },
+    { period: 2, label: 'Tiết 2', time: '(8h30 - 9h15)' },
+    { period: 3, label: 'Tiết 3', time: '(9h15 - 10h00)' },
+    { period: 4, label: 'Tiết 4', time: '(10h20 - 11h05)' },
+    { period: 5, label: 'Tiết 5', time: '(11h05 - 11h50)' }
+  ];
 
-      rows += `
-        <tr class="${i === 0 ? 'day-start ' : ''}">
-          ${i === 0 ? `<th rowspan="9" class="day-name" style="width:70px;background:#f0f4eb;">THỨ ${['', '', 'HAI', 'BA', 'TƯ', 'NĂM', 'SÁU'][day]}</th>` : ''}
-          ${slot.period === 1 ? `<th rowspan="${slot.session === 'MORNING' ? 5 : 4}" class="session ${slot.session.toLowerCase()}">${slot.session === 'MORNING' ? 'SÁNG' : 'CHIỀU'}</th>` : ''}
-          <th class="period">${slot.period}</th>
-          <td class="time">${esc(slot.startTime)} - ${esc(slot.endTime)}</td>
-          <td class="lesson ${cell ? 'filled' : 'empty'}" style="${subject ? '--subject:' + esc(subject.color) + ';' : ''}">
-            <div style="padding:10px 14px;border-radius:6px;background:color-mix(in srgb,var(--subject,#666) 12%,white);text-align:left;">
-              <strong style="display:block;font-size:12px;color:#184239;">${subject ? esc(subject.name) : '—'}</strong>
-              <span style="font-size:11px;color:#557065;">${teacherName ? 'GV: ' + esc(teacherName) : 'Chưa xếp GV'}</span>
-              ${cell?.note ? `<small style="display:block;font-size:9px;color:#859a8e;margin-top:2px;">${esc(cell.note)}</small>` : ''}
-            </div>
-          </td>
-        </tr>
+  const afternoonDefs = [
+    { period: 1, label: 'Tiết 1', time: '(13h30 - 14h10)' },
+    { period: 2, label: 'Tiết 2', time: '(14h10 - 14h50)' },
+    { period: 3, label: 'Tiết 3', time: '(15h10 - 15h50)' },
+    { period: 4, label: 'Tiết 4', time: '(15h30 - 16h30)' },
+    { period: 5, label: 'Phụ đạo', time: '(17h00 - 18h30)' }
+  ];
+
+  function renderRow(def, session) {
+    let cellsHtml = '';
+    for (let day = 2; day <= 6; day++) {
+      const lessons = getSlotLessons(day, session, def.period);
+      cellsHtml += `
+        <td style="border:1.5px solid #8C0D36;background:#ffffff;text-align:center;vertical-align:middle;padding:8px 4px;height:48px;">
+          ${lessons.length ? lessons.map(l => {
+            const sName = text(pData.subjects || [], l.subjectId, 'name');
+            const tName = text(pData.teachers || [], l.teacherId, 'fullName');
+            return `
+              <div style="font-weight:700;color:#8C0D36;font-size:14px;line-height:1.25;">
+                ${esc(sName)}
+              </div>
+              ${homeroomShowTeacher && tName ? `
+                <div style="font-size:11px;color:#555555;font-weight:normal;margin-top:2px;">
+                  ${esc(tName)}
+                </div>
+              ` : ''}
+            `;
+          }).join('<div style="height:4px;border-top:1px dashed #e6b8c4;margin:3px 0;"></div>') : '&nbsp;'}
+        </td>
       `;
-    });
+    }
+    return `
+      <tr>
+        <td style="border:1.5px solid #8C0D36;background:#ffffff;text-align:center;vertical-align:middle;padding:6px 4px;font-weight:700;color:#8C0D36;font-size:14px;line-height:1.2;">
+          ${esc(def.label)}<br>
+          <span style="font-size:12px;font-weight:600;">${esc(def.time)}</span>
+        </td>
+        ${cellsHtml}
+      </tr>
+    `;
   }
 
   return `
-    <section class="matrix-panel">
-      <div class="panel-toolbar" style="flex-wrap:wrap;gap:12px;">
-        <div style="display:flex;align-items:center;gap:10px;">
-          <label style="font-size:11px;font-weight:700;color:#184239;">LỚP CHỦ NHIỆM:</label>
-          <select id="homeroom-class-select" style="font-weight:700;">
-            ${homeroomClasses.map(c => `<option value="${esc(c.id)}" ${c.id === currentClass.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+    <section class="matrix-panel" style="padding-bottom:30px;">
+      <!-- Toolbar Điều khiển -->
+      <div class="panel-toolbar" style="flex-wrap:wrap;gap:14px;background:#ffffff;padding:12px 18px;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,0.06);margin-bottom:20px;align-items:center;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <label style="font-size:12px;font-weight:700;color:#184239;">LỚP HỌC:</label>
+          <select id="homeroom-class-select" style="font-weight:700;padding:6px 12px;border:1.5px solid #8C0D36;border-radius:6px;color:#8C0D36;background:#ffffff;cursor:pointer;">
+            ${availableClasses.map(c => `<option value="${esc(c.id)}" ${c.id === currentClass.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
           </select>
         </div>
-        <div class="toolbar-right">
-          <button data-action="print" class="primary">In thời khóa biểu lớp</button>
+
+        ${isGrade11 ? `
+          <div style="display:flex;align-items:center;gap:8px;">
+            <label style="font-size:12px;font-weight:700;color:#184239;">TỔ HỢP / BAN:</label>
+            <select id="homeroom-track-select" style="font-weight:700;padding:6px 12px;border:1.5px solid #8C0D36;border-radius:6px;color:#8C0D36;background:#ffffff;cursor:pointer;">
+              <option value="XH" ${homeroomExportTrack === 'XH' ? 'selected' : ''}>Ban Xã hội (XH)</option>
+              <option value="TN" ${homeroomExportTrack === 'TN' ? 'selected' : ''}>Ban Tự nhiên (TN)</option>
+              <option value="ALL" ${homeroomExportTrack === 'ALL' ? 'selected' : ''}>Toàn bộ (Cả 2 ban)</option>
+            </select>
+          </div>
+        ` : ''}
+
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#333333;cursor:pointer;user-select:none;">
+          <input type="checkbox" id="poster-show-teacher-toggle" ${homeroomShowTeacher ? 'checked' : ''} style="cursor:pointer;accent-color:#8C0D36;" />
+          Hiển thị tên Giáo viên
+        </label>
+
+        <div class="toolbar-right" style="margin-left:auto;display:flex;align-items:center;gap:10px;">
+          <button data-action="export-timetable-image" style="background:#8C0D36;color:#ffffff;border:none;padding:9px 18px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(140,13,54,0.25);">
+            📸 Tải ảnh TKB về máy (.PNG)
+          </button>
+          <button data-action="print-poster" style="background:#f0f4eb;color:#184239;border:1px solid #c2ceb9;padding:9px 15px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;">
+            🖨️ In Thời khóa biểu
+          </button>
         </div>
       </div>
 
-      <div class="matrix-caption">
-        <div>
-          <span class="live-pill published">✓ BẢN CHÍNH THỨC</span>
-          <h2>THỜI KHÓA BIỂU LỚP ${esc(currentClass.name)}</h2>
-          <p>${esc(pData.school?.name)} · Năm học ${esc(pData.school?.year)} · ${esc(pData.school?.term)}</p>
-        </div>
-        <p class="matrix-help">Chế độ xem dành riêng cho giáo viên chủ nhiệm. Không có quyền sửa lịch.</p>
-      </div>
+      <!-- Khung Poster Mẫu VASchools (Chính xác theo mẫu ảnh) -->
+      <div style="overflow-x:auto;padding:10px 0;">
+        <div id="vaschools-timetable-poster" style="background:#ffffff;border:3.5px solid #8C0D36;border-radius:18px;padding:26px 32px 22px 32px;max-width:980px;min-width:860px;margin:0 auto;box-sizing:border-box;font-family:'Times New Roman',Times,serif,system-ui,sans-serif;color:#1a1a1a;box-shadow:0 4px 24px rgba(140,13,54,0.08);">
+          
+          <!-- Header Poster: Logo bên trái, Tiêu đề & Tuần ở giữa, Cân đối bên phải (ĐÃ BỎ ĐỐI TƯỢNG NHÂN VẬT) -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
+            <!-- Logo VASchools bên trái -->
+            <div style="width:230px;flex-shrink:0;display:flex;align-items:center;">
+              <img src="/assets/aistudio/VA_SCHOOLS_-_Logo_Assets_-_RGB-02_c3498fbd.png" alt="Vietnam America Schools" style="height:66px;max-width:230px;object-fit:contain;" />
+            </div>
 
-      <div class="matrix-scroll">
-        <table class="matrix" style="width:100%;min-width:650px;">
-          <thead>
-            <tr>
-              <th style="width:70px;">Thứ</th>
-              <th style="width:60px;">Buổi</th>
-              <th style="width:45px;">Tiết</th>
-              <th style="width:110px;">Thời gian</th>
-              <th>Môn học & Giáo viên phụ trách</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
+            <!-- Tiêu đề & Tuần & Lớp học ở trung tâm -->
+            <div style="flex:1;text-align:center;padding:0 12px;">
+              <h1 style="margin:0;font-size:32px;font-weight:800;color:#8C0D36;letter-spacing:0.5px;text-transform:uppercase;line-height:1.15;">
+                THỜI KHÓA BIỂU
+              </h1>
+              <div style="margin-top:6px;">
+                <span style="display:inline-block;background:#8C0D36;color:#ffffff;font-size:15px;font-weight:700;padding:3.5px 22px;border-radius:9999px;letter-spacing:0.2px;">
+                  (${esc(weekBadgeText)})
+                </span>
+              </div>
+              <div style="margin-top:6px;font-size:16px;font-weight:800;color:#8C0D36;letter-spacing:0.3px;">
+                ${classTitleText}
+                ${hrTeacherName ? `<span style="font-weight:600;font-size:13.5px;color:#555555;margin-left:10px;">(GVCN: ${esc(hrTeacherName)})</span>` : ''}
+              </div>
+            </div>
+
+            <!-- Khoảng trống đối ứng bên phải để căn giữa tiêu đề (TUYỆT ĐỐI BỎ ĐỐI TƯỢNG NHÂN VẬT THEO YÊU CẦU) -->
+            <div style="width:230px;flex-shrink:0;"></div>
+          </div>
+
+          <!-- Bảng Thời Khóa Biểu VASchools -->
+          <table style="width:100%;border-collapse:collapse;border:2px solid #8C0D36;table-layout:fixed;">
+            <thead>
+              <tr style="background:#8C0D36;color:#ffffff;height:42px;font-weight:800;font-size:16px;">
+                <th style="width:150px;border:1.5px solid #ffffff;text-align:center;vertical-align:middle;padding:4px;">Thời gian</th>
+                <th style="border:1.5px solid #ffffff;text-align:center;vertical-align:middle;padding:4px;">Thứ hai</th>
+                <th style="border:1.5px solid #ffffff;text-align:center;vertical-align:middle;padding:4px;">Thứ ba</th>
+                <th style="border:1.5px solid #ffffff;text-align:center;vertical-align:middle;padding:4px;">Thứ tư</th>
+                <th style="border:1.5px solid #ffffff;text-align:center;vertical-align:middle;padding:4px;">Thứ năm</th>
+                <th style="border:1.5px solid #ffffff;text-align:center;vertical-align:middle;padding:4px;">Thứ sáu</th>
+              </tr>
+            </thead>
+            <tbody>
+              <!-- Buổi Sáng: Tiết 1 đến Tiết 5 -->
+              ${morningDefs.map(def => renderRow(def, 'MORNING')).join('')}
+
+              <!-- Hàng nghỉ trưa đặc trưng VASchools -->
+              <tr style="background:#8C0D36;color:#ffffff;height:38px;font-weight:800;font-size:15px;">
+                <td colspan="6" style="text-align:center;border:1.5px solid #8C0D36;letter-spacing:0.3px;">
+                  Ăn cơm và nghỉ trưa (11h50 - 13h15)
+                </td>
+              </tr>
+
+              <!-- Buổi Chiều: Tiết 1 đến Tiết 4 & Phụ đạo -->
+              ${afternoonDefs.map(def => renderRow(def, 'AFTERNOON')).join('')}
+            </tbody>
+          </table>
+
+          <!-- Thanh 5 dải màu nhận diện thương hiệu VASchools -->
+          <div style="display:flex;height:9px;width:100%;border-radius:4px;overflow:hidden;margin-top:20px;">
+            <div style="flex:1;background:#007B88;" title="Teal"></div>
+            <div style="flex:1;background:#E5A823;" title="Yellow"></div>
+            <div style="flex:1;background:#8C0D36;" title="Burgundy"></div>
+            <div style="flex:1;background:#8B8000;" title="Olive"></div>
+            <div style="flex:1;background:#1B4F9B;" title="Blue"></div>
+          </div>
+        </div>
       </div>
     </section>
   `;
@@ -1374,7 +1527,7 @@ function renderAvailabilityView() {
   const pData = publishedTimetable?.data || state;
   const teacherId = currentUserProfile?.teacherId || '';
   const myAssignedSlots = new Set(
-    (pData.timetableCells || []).filter(c => c.teacherId === teacherId).map(c => c.timeSlotId)
+    allLessons(pData).filter(c => c.teacherId === teacherId).map(c => c.timeSlotId)
   );
 
   const busySlots = new Set(availabilityDoc?.busySlotIds || []);
@@ -1681,6 +1834,7 @@ function renderSchoolPage() {
         <dt>Tên trường:</dt><dd>${esc(state.school?.name || 'Trường THCS & THPT')}</dd>
         <dt>Năm học:</dt><dd>${esc(state.school?.year || '2026-2027')}</dd>
         <dt>Học kỳ:</dt><dd>${esc(state.school?.term || 'HK1')}</dd>
+        <dt>Tuần học:</dt><dd>${esc(schoolWeekText(state.school))}</dd>
         <dt>Ngày áp dụng:</dt><dd>${esc(state.school?.appliedDate || 'Chưa đặt')}</dd>
       </dl>
     </section>
@@ -1690,17 +1844,34 @@ function renderSchoolPage() {
 // ----------------------------------------------------
 // Core Matrix Section (Ma trận phân công & Thời khóa biểu)
 // ----------------------------------------------------
+function renderGrade11Parts(s,cls,slot,day,cell,isReadonly) {
+ const lessons=cellLessons(s,cell);
+ return '<div class="grade11-parallel-parts" style="display:flex;width:100%;height:100%;gap:0;">'+['TN','XH'].map((track,i)=>{
+  const lesson=lessons.find(l=>l.track===track),subject=s.subjects.find(x=>x.id===lesson?.subjectId),teacher=text(s.teachers||[],lesson?.teacherId,'fullName');
+  const teacherColor = lesson?.teacherId ? getTeacherColor(s, lesson.teacherId) : (subject ? subject.color : '');
+  const label=track+': '+(subject?.name||'Chưa xếp môn')+(teacher?' — '+teacher:'');
+  return `<button type="button" data-cell-drop="true" data-cell-class="${esc(cls.id)}" data-cell-slot="${esc(slot.id)}" data-cell-day="${day}" data-cell-period="${slot.period}" data-cell-track="${track}" aria-label="${esc(cls.name+', thứ '+day+', '+(slot.session==='MORNING'?'sáng':'chiều')+' tiết '+slot.period+', '+label)}" title="${esc(label)}" style="flex:1 1 0;width:50%;min-width:0;border-radius:0;${i?'border-left:1px solid var(--border);':''}${teacherColor?'--subject:'+esc(teacherColor)+';':''}" ${isReadonly?'disabled':''}>
+   ${lesson?`<span class="subject-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;width:100%;">${esc(subject?.name||'')}${cell.locked?' <span class="lock" title="Đã khóa">🔒</span>':''}</span><span class="teacher-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:3px;">${lesson.teacherId ? `<i style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${teacherColor};flex-shrink:0;"></i>` : ''}${esc(teacher||'Chưa chọn giáo viên')}</span>`:'<span class="empty-mark">'+track+' ＋</span>'}
+  </button>`;
+ }).join('')+'</div>';
+}
+
 function renderMatrixSection(s) {
+  const isTeacherWorkspace = (currentWorkspace !== 'ADMIN' && currentWorkspace !== 'SCHEDULER') || !isSchedulerRole() || view === 'published_all';
+  const effectiveMatrixMode = isTeacherWorkspace ? 'timetable' : matrixViewMode;
+  if (isTeacherWorkspace && publishedTimetable?.isPublished && publishedTimetable?.data) {
+    s = normalizeState(publishedTimetable.data);
+  }
   const classes = (s.classes || []).filter(c => !grade || (grade === 'THCS' ? c.grade <= 9 : grade === 'THPT' ? c.grade >= 10 : String(c.grade) === grade));
-  const isReadonly = !canEditWorking();
-  const targetTeacherId = (brushMode === 'brush' && brushTeacherId) ? brushTeacherId : (selectedTeacherHighlight || teacher);
+  const isReadonly = isTeacherWorkspace || !canEditWorking();
+  const targetTeacherId = (brushMode === 'brush' && brushTeacherId && !isTeacherWorkspace) ? brushTeacherId : (selectedTeacherHighlight || teacher);
   const targetHighlightId = targetTeacherId;
   const targetTeacherName = targetTeacherId ? text(s.teachers || [], targetTeacherId, 'fullName') : '';
 
   let tableHeaderHtml = '';
   let tableBodyHtml = '';
 
-  if (matrixViewMode === 'assignment') {
+  if (effectiveMatrixMode === 'assignment') {
     // ----------------------------------------------------
     // Chế độ 1: Ma trận phân công (Hàng là Môn, Cột là Lớp)
     // ----------------------------------------------------
@@ -1820,10 +1991,12 @@ function renderMatrixSection(s) {
         for (const cls of classes) {
           const cell = index.get(keyOf(cls.id, slot.id));
           const subject = cell ? s.subjects?.find(x => x.id === cell.subjectId) : null;
-          const teacherText = cell ? text(s.teachers || [], cell.teacherId, 'fullName') : '';
+          const assignedTeacherId = cell ? (cell.teacherId || cellLessons(s, cell)[0]?.teacherId) : '';
+          const teacherText = cell ? cellLessons(s,cell).map(l=>text(s.teachers||[],l.teacherId,'fullName')).join(' / ') : '';
+          const teacherColor = assignedTeacherId ? getTeacherColor(s, assignedTeacherId) : (subject ? subject.color : '');
           const hasTarget = !!targetHighlightId;
-          const isHighlighted = hasTarget && cell?.teacherId === targetHighlightId;
-          const isDimmed = hasTarget && (!cell || cell.teacherId !== targetHighlightId);
+          const isHighlighted = hasTarget && cellLessons(s,cell).some(l=>l.teacherId===targetHighlightId);
+          const isDimmed = hasTarget && !cellLessons(s,cell).some(l=>l.teacherId===targetHighlightId);
           const matchQuery = !query || `${subject?.name || ''} ${teacherText} ${cls.name}`.toLocaleLowerCase('vi').includes(query.toLocaleLowerCase('vi'));
 
           rows += `<td class="lesson ${cell ? 'filled' : 'empty'} ${isHighlighted ? 'cell-highlighted' : ''} ${isDimmed || !matchQuery ? 'cell-dimmed' : ''} ${cell && conflictIds.has(cell.id) ? 'conflict' : ''}"
@@ -1832,15 +2005,15 @@ function renderMatrixSection(s) {
                        data-cell-slot="${esc(slot.id)}"
                        data-cell-day="${day}"
                        data-cell-period="${slot.period}"
-                       style="${subject ? '--subject:' + esc(subject.color) + ';' : ''}">
-            <button data-cell-class="${esc(cls.id)}"
+                       style="${teacherColor ? '--subject:' + esc(teacherColor) + ';' : ''}">
+            ${cls.grade===11 && (!cell || cellLessons(s,cell).some(l=>['TN','XH'].includes(l.track))) ? renderGrade11Parts(s,cls,slot,day,cell,isReadonly) : `<button data-cell-class="${esc(cls.id)}"
                     data-cell-slot="${esc(slot.id)}"
                     data-cell-day="${day}"
                     data-cell-period="${slot.period}"
                     aria-label="${esc(`${cls.name}, thứ ${day}, ${slot.session === 'MORNING' ? 'sáng' : 'chiều'} tiết ${slot.period}${subject ? ', ' + subject.name : ''}`)}"
                     ${isReadonly ? 'disabled' : ''}>
-              ${cell ? `<span class="subject-name">${esc(subject?.name)} ${cell.locked ? '<span class="lock" title="Đã khóa">▣</span>' : ''}</span><span class="teacher-name">${cell.teacherId ? esc(teacherText) : 'Chưa chọn giáo viên'}</span>${cell.note ? `<span class="cell-note" title="${esc(cell.note)}">${esc(cell.note)}</span>` : ''}` : '<span class="empty-mark">＋</span>'}
-            </button>
+              ${cell?.parallelLessons?.length ? cellLessons(s,cell).map((l,i)=>`<span class="${i?'teacher-name':'subject-name'}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;max-width:100%;" title="${esc(l.track+': '+text(s.subjects,l.subjectId)+' — '+text(s.teachers,l.teacherId,'fullName'))}">${esc(l.track)}: ${esc(text(s.subjects,l.subjectId))} — ${esc(text(s.teachers,l.teacherId,'fullName')||'Chưa chọn giáo viên')}</span>`).join('') : cell ? `<span class="subject-name">${esc(subject?.name)} ${cell.locked ? (!isReadonly ? `<span class="lock-indicator" data-action="quick-toggle-cell-lock" data-class="${esc(cls.id)}" data-slot="${esc(slot.id)}" title="Tiết học đang khóa cố định. Nhấp để mở khóa">🔒</span>` : '<span class="lock" title="Đã khóa">🔒</span>') : ''}</span><span class="teacher-name" style="display:inline-flex;align-items:center;justify-content:center;gap:3px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${assignedTeacherId ? `<i style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${teacherColor};flex-shrink:0;"></i>` : ''}${cell.teacherId ? esc(teacherText) : 'Chưa chọn giáo viên'}</span>${cell.note ? `<span class="cell-note" title="${esc(cell.note)}">${esc(cell.note)}</span>` : ''}` : '<span class="empty-mark">＋</span>'}
+            </button>`}
           </td>`;
         }
         rows += '</tr>';
@@ -1849,45 +2022,79 @@ function renderMatrixSection(s) {
     tableBodyHtml = rows;
   }
 
-  const trayHtml = matrixViewMode === 'timetable' ? renderAssignmentTray(s, classes) : '';
+  const trayHtml = (!isTeacherWorkspace && effectiveMatrixMode === 'timetable') ? renderAssignmentTray(s, classes) : '';
 
   return `
-    <section class="matrix-panel ${brushMode !== 'none' ? 'brush-active' : ''}">
+    <section class="matrix-panel ${brushMode !== 'none' && !isTeacherWorkspace ? 'brush-active' : ''}">
       <div class="panel-toolbar">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-          <div class="segmented">
-            <button data-set-matrix-mode="assignment" class="${matrixViewMode === 'assignment' ? 'selected' : ''}">📋 Ma trận phân công (Môn - Lớp)</button>
-            <button data-set-matrix-mode="timetable" class="${matrixViewMode === 'timetable' ? 'selected' : ''}">▦ Lịch tiết học (Tiết - Lớp)</button>
-          </div>
-
-          <!-- 2 Môi trường (Draft vs Published) Engine -->
-          <div class="publish-engine-bar">
-            <div class="publish-toggle-group">
-              <button type="button" data-action="set-version-draft" class="publish-toggle-btn ${activeVersion === 'draft' ? 'selected' : ''}" title="Chuyển sang bản nháp đang xếp">
-                📝 Bản đang xếp
-              </button>
-              <button type="button" data-action="set-version-published" class="publish-toggle-btn ${activeVersion === 'published' ? 'selected' : ''}" title="Xem bản công bố chính thức">
-                ✓ Bản đã chốt
-              </button>
+          ${isTeacherWorkspace ? `
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:13px;font-weight:700;color:#184239;display:inline-flex;align-items:center;gap:6px;">
+                <span style="display:inline-block;width:9px;height:9px;background:#15803d;border-radius:50%;"></span>
+                LỊCH TIẾT HỌC TOÀN TRƯỜNG (BẢN ĐÃ CHỐT)
+              </span>
+              <span class="live-pill published">✓ BẢN CHÍNH THỨC</span>
+            </div>
+          ` : `
+            <div class="segmented">
+              <button data-set-matrix-mode="assignment" class="${effectiveMatrixMode === 'assignment' ? 'selected' : ''}">📋 Ma trận phân công (Môn - Lớp)</button>
+              <button data-set-matrix-mode="timetable" class="${effectiveMatrixMode === 'timetable' ? 'selected' : ''}">▦ Lịch tiết học (Tiết - Lớp)</button>
             </div>
 
-            ${isSchedulerRole() ? `
-              <div class="publish-actions">
-                <button type="button" data-action="publish-all" class="btn-publish-all" title="Sao chép toàn bộ bản nháp sang bản chính thức và công bố cho toàn trường">
-                  🚀 Công bố lên toàn trường
+            <!-- 2 Môi trường (Draft vs Published) Engine -->
+            <div class="publish-engine-bar">
+              <div class="publish-toggle-group">
+                <button type="button" data-action="set-version-draft" class="publish-toggle-btn ${activeVersion === 'draft' ? 'selected' : ''}" title="Chuyển sang bản nháp đang xếp">
+                  📝 Bản đang xếp
                 </button>
-                <button type="button" data-action="restore-published-all" class="btn-restore-published" title="Hủy các thay đổi nháp và khôi phục quay lại giống bản đã chốt">
-                  ↺ Khôi phục bản chốt
+                <button type="button" data-action="set-version-published" class="publish-toggle-btn ${activeVersion === 'published' ? 'selected' : ''}" title="Xem bản công bố chính thức">
+                  ✓ Bản đã chốt
                 </button>
               </div>
-            ` : ''}
 
-            ${(workingDraft.lastPublishedAt || publishedTimetable?.lastPublishedAt) ? `
-              <span class="publish-time-badge" title="Thời điểm công bố gần nhất">
-                🕒 Đã chốt: ${esc(workingDraft.lastPublishedAt || publishedTimetable?.lastPublishedAt)}
-              </span>
-            ` : ''}
-          </div>
+              ${isSchedulerRole() ? `
+                <div class="publish-actions">
+                  <button type="button" data-action="publish-all" class="btn-publish-all" title="Sao chép toàn bộ bản nháp sang bản chính thức và công bố cho toàn trường">
+                    🚀 Công bố lên toàn trường
+                  </button>
+                  <button type="button" data-action="restore-published-all" class="btn-restore-published" title="Hủy các thay đổi nháp và khôi phục quay lại giống bản đã chốt">
+                    ↺ Khôi phục bản chốt
+                  </button>
+                  ${effectiveMatrixMode === 'timetable' ? (() => {
+                    const history = Array.isArray(workingDraft.changeHistory) ? workingDraft.changeHistory : [];
+                    const undoableList = history.filter(h => h.canUndo && !h.undone);
+                    const undoableCount = undoableList.length;
+                    const historyCount = history.length;
+                    const lastUndoable = undoableList[0];
+                    return `
+                      <button type="button" data-action="undo-last-change" class="btn-tool-undo ${undoableCount > 0 ? '' : 'disabled'}" ${undoableCount > 0 ? '' : 'disabled'} style="display:inline-flex;align-items:center;gap:4px;background:#f0fdf4;border:1px solid #86efac;color:#166534;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px;cursor:${undoableCount > 0 ? 'pointer' : 'not-allowed'};opacity:${undoableCount > 0 ? '1' : '0.5'};" title="${lastUndoable ? 'Hoàn tác: ' + esc(lastUndoable.description) + ' (Phím tắt: Ctrl+Z)' : 'Chưa có thao tác nào để hoàn tác'}">
+                        ↶ Hoàn tác ${undoableCount > 0 ? `(${undoableCount})` : ''}
+                      </button>
+                      <button type="button" data-action="open-change-history-modal" class="btn-tool-history" style="display:inline-flex;align-items:center;gap:4px;background:#f8fafc;border:1px solid #cbd5e1;color:#334155;font-size:11px;font-weight:700;padding:5px 10px;border-radius:6px;cursor:pointer;" title="Xem lịch sử các lần thay đổi gần nhất và hoàn tác">
+                        📜 Nhật ký thay đổi ${historyCount > 0 ? `(${historyCount})` : ''}
+                      </button>
+                      <button type="button" data-action="unlock-all-fixed" class="btn-tool-unlock" title="Mở khóa tất cả các môn cố định (Chào cờ, SHL, ESL) trên toàn trường để tự do xếp lại">
+                        🔓 Mở khóa môn cố định
+                      </button>
+                      <button type="button" data-action="reset-monday-flag-ceremony" class="btn-tool-unlock" style="background:#fee2e2;color:#991b1b;border-color:#fca5a5;" title="Đặt lại tiết Chào cờ cố định vào sáng Thứ 2 (Tiết 1) cho tất cả các lớp">
+                        🚩 Đặt lại Chào cờ T2
+                      </button>
+                      <button type="button" data-action="show-teacher-palette-modal" class="btn-tool-palette" title="Xem bảng 43 màu của 43 giáo viên">
+                        🎨 Bảng 43 màu GV
+                      </button>
+                    `;
+                  })() : ''}
+                </div>
+              ` : ''}
+
+              ${(workingDraft.lastPublishedAt || publishedTimetable?.lastPublishedAt) ? `
+                <span class="publish-time-badge" title="Thời điểm công bố gần nhất">
+                  🕒 Đã chốt: ${esc(workingDraft.lastPublishedAt || publishedTimetable?.lastPublishedAt)}
+                </span>
+              ` : ''}
+            </div>
+          `}
         </div>
 
         <div class="toolbar-right">
@@ -1899,8 +2106,8 @@ function renderMatrixSection(s) {
         </div>
       </div>
 
-      <!-- Thanh công cụ Cọ gán nhanh (Quick Stamp / Brush Tool cho Ma trận phân công) -->
-      ${canEditWorking() && matrixViewMode === 'assignment' ? `
+      <!-- Thanh công cụ Cọ gán nhanh (Chỉ hiển thị cho người xếp lịch tại Ma trận phân công) -->
+      ${!isTeacherWorkspace && canEditWorking() && effectiveMatrixMode === 'assignment' ? `
         <div class="brush-toolbar">
           <span class="brush-title">🖌️ Cọ gán nhanh:</span>
           <select id="brush-teacher-select" class="brush-select">
@@ -1927,36 +2134,38 @@ function renderMatrixSection(s) {
       <div class="matrix-caption">
         <div>
           <span class="live-pill ${isReadonly ? 'published' : ''}">${isReadonly ? '✓ ĐÃ CHỐT' : '● BẢN ĐANG XẾP'}</span>
-          <h2>${matrixViewMode === 'assignment' ? 'MA TRẬN PHÂN CÔNG CHUYÊN MÔN (MÔN — LỚP)' : 'THỜI KHÓA BIỂU TOÀN TRƯỜNG (TIẾT — LỚP)'}</h2>
-          <p>${esc(s.school?.name || '')} · ${esc(s.school?.year || '')} · ${esc(s.school?.term || '')}${s.school?.appliedDate ? ' · Áp dụng ' + esc(s.school.appliedDate) : ''}</p>
+          <h2>${isTeacherWorkspace ? 'LỊCH TIẾT HỌC TOÀN TRƯỜNG (TIẾT — LỚP)' : (effectiveMatrixMode === 'assignment' ? 'MA TRẬN PHÂN CÔNG CHUYÊN MÔN (MÔN — LỚP)' : 'THỜI KHÓA BIỂU TOÀN TRƯỜNG (TIẾT — LỚP)')}</h2>
+          <p>${esc(s.school?.name || '')} · ${esc(s.school?.year || '')} · ${esc(s.school?.term || '')} · ${esc(schoolWeekText(s.school))}${s.school?.appliedDate ? ' · Áp dụng ' + esc(s.school.appliedDate) : ''}</p>
         </div>
         <p class="matrix-help">${
-          matrixViewMode === 'timetable'
-            ? (armedCard
-                ? `🎯 Đang cầm cọ thẻ: ${esc(text(s.subjects || [], armedCard.subjectId))} - ${esc(text(s.teachers || [], armedCard.teacherId, 'fullName'))}. Click vào các ô trống trên bảng để gán nhanh.`
-                : isReadonly
-                ? 'Chế độ xem chỉ đọc bản lịch đã chốt.'
-                : 'Nhấp một ô để mở Popover gợi ý chỉ giáo viên lớp này, hoặc Kéo-Thả / Click cọ thẻ từ Khay phân công.')
-            : (brushMode === 'brush'
-                ? `🖌️ Chế độ Cọ vẽ: Click bất kỳ ô nào để gán ngay cho ${esc(targetTeacherName)}.`
-                : brushMode === 'eraser'
-                ? '🧼 Chế độ Tẩy: Click bất kỳ ô nào để xóa phân công ngay lập tức.'
-                : targetTeacherId
-                ? `Đang rọi sáng phân công của: ${esc(targetTeacherName)}`
-                : isReadonly
-                ? 'Chế độ xem chỉ đọc bản lịch đã chốt.'
-                : 'Nhấp một ô để mở danh sách chọn giáo viên (Popover Click) hoặc dùng Cọ vẽ để gán nhanh.')
+          isTeacherWorkspace
+            ? 'Bản thời khóa biểu chính thức đã chốt của toàn trường (dạng Tiết — Lớp).'
+            : (effectiveMatrixMode === 'timetable'
+                ? (armedCard
+                    ? `🎯 Đang cầm cọ thẻ: ${esc(text(s.subjects || [], armedCard.subjectId))} - ${esc(text(s.teachers || [], armedCard.teacherId, 'fullName'))}. Click vào các ô trống trên bảng để gán nhanh.`
+                    : isReadonly
+                    ? 'Chế độ xem chỉ đọc bản lịch đã chốt.'
+                    : 'Nhấp một ô để mở Popover gợi ý chỉ giáo viên lớp này, hoặc Kéo-Thả / Click cọ thẻ từ Khay phân công.')
+                : (brushMode === 'brush'
+                    ? `🖌️ Chế độ Cọ vẽ: Click bất kỳ ô nào để gán ngay cho ${esc(targetTeacherName)}.`
+                    : brushMode === 'eraser'
+                    ? '🧼 Chế độ Tẩy: Click bất kỳ ô nào để xóa phân công ngay lập tức.'
+                    : targetTeacherId
+                    ? `Đang rọi sáng phân công của: ${esc(targetTeacherName)}`
+                    : isReadonly
+                    ? 'Chế độ xem chỉ đọc bản lịch đã chốt.'
+                    : 'Nhấp một ô để mở danh sách chọn giáo viên (Popover Click) hoặc dùng Cọ vẽ để gán nhanh.'))
         }</p>
       </div>
 
       ${
-        matrixViewMode === 'timetable' && trayPosition === 'top'
+        !isTeacherWorkspace && effectiveMatrixMode === 'timetable' && trayPosition === 'top'
           ? trayHtml
           : ''
       }
 
       ${
-        matrixViewMode === 'timetable' && trayPosition === 'right'
+        !isTeacherWorkspace && effectiveMatrixMode === 'timetable' && trayPosition === 'right'
           ? `
             <div class="timetable-with-tray-container layout-right">
               <div class="matrix-scroll" id="matrix-scroll-container" tabindex="0" role="region" aria-label="Ma trận thời khóa biểu">
@@ -1981,8 +2190,8 @@ function renderMatrixSection(s) {
       }
 
       <div class="matrix-bottom">
-        <span><i></i> ${matrixViewMode === 'assignment' ? 'Ma trận gán trực tiếp giáo viên dạy theo môn & lớp' : 'Môn học & giáo viên trong từng tiết học'}</span>
-        <span>${isReadonly ? 'Chế độ xem chỉ đọc bản đã chốt' : 'Đồng bộ Cloud tự động'} · Cơ chế gợi ý cục bộ không tràn lan (Popover & Khay thẻ)</span>
+        <span><i></i> ${effectiveMatrixMode === 'assignment' ? 'Ma trận gán trực tiếp giáo viên dạy theo môn & lớp' : 'Môn học & giáo viên trong từng tiết học (Tiết — Lớp)'}</span>
+        <span>${isReadonly ? 'Chế độ xem chỉ đọc bản đã chốt' : 'Đồng bộ Cloud tự động'}</span>
       </div>
     </section>
 
@@ -2437,7 +2646,7 @@ export function render() {
       <header class="topbar">
         <span>${esc(state.school?.name || 'Trường THCS & THPT')}</span>
         <div>
-          <span class="year">${esc(state.school?.year || '2026-2027')} · ${esc(state.school?.term || 'HK1')}</span>
+          <span class="year">${esc(state.school?.year || '2026-2027')} · ${esc(state.school?.term || 'HK1')} · ${esc(schoolWeekText(state.school))}</span>
 
           ${
             availableWs.length > 1
@@ -2542,7 +2751,7 @@ function renderAssignmentTray(s, classes) {
     traySelectedClassId = classes[0]?.id || '';
   }
   const currentClass = (s.classes || []).find(c => c.id === traySelectedClassId);
-  const classAssignments = (workingDraft.draftAssignments || []).filter(a => a.classId === traySelectedClassId);
+  const classAssignments = (workingDraft.draftAssignments || []).filter(a => a.classId === traySelectedClassId && subjectsForClass(workingDraft,traySelectedClassId).some(s=>s.id===a.subjectId));
 
   return `
     <div class="assignment-tray-wrapper ${trayPosition === 'right' ? 'tray-right-dock' : 'tray-top-dock'}">
@@ -2577,7 +2786,7 @@ function renderAssignmentTray(s, classes) {
           const subj = (s.subjects || []).find(x => x.id === a.subjectId);
           const tea = (s.teachers || []).find(x => x.id === a.teacherId);
           const isArmed = armedCard && armedCard.classId === a.classId && armedCard.subjectId === a.subjectId && armedCard.teacherId === a.teacherId;
-          const assignedSlotsCount = (workingDraft.draftSchedule || []).filter(c => c.classId === a.classId && c.subjectId === a.subjectId).length;
+          const assignedSlotsCount = allLessons(workingDraft).filter(c => c.classId === a.classId && c.subjectId === a.subjectId).length;
 
           return `
             <div class="assignment-card ${isArmed ? 'armed' : ''}"
@@ -2613,6 +2822,7 @@ function renderAssignmentTray(s, classes) {
   `;
 }
 
+let grade11Track = 'TN';
 function openTimetableCellPopover({ classId, timeSlotId, day, period, anchorElement }) {
   closePopover();
   if (!canEditWorking()) return;
@@ -2620,12 +2830,47 @@ function openTimetableCellPopover({ classId, timeSlotId, day, period, anchorElem
   const cls = (workingDraft.classes || []).find(c => c.id === classId);
   const slot = (workingDraft.timeSlots || []).find(s => s.id === timeSlotId);
   const dayLabel = `Thứ ${day}`;
-  const currentCell = (workingDraft.draftSchedule || []).find(
+  const currentCell = (workingDraft.timetableCells || []).find(
+    c => c.classId === classId && (c.timeSlotId === timeSlotId || (c.day === dayLabel && c.period === period))
+  ) || (workingDraft.draftSchedule || []).find(
     c => c.classId === classId && (c.timeSlotId === timeSlotId || (c.day === dayLabel && c.period === period))
   );
+  const isCellLocked = Boolean(currentCell?.locked);
+
+  // Check special fixed subjects
+  const chaoCoSubj = (workingDraft.subjects || []).find(s =>
+    s.id === 'subj_special_chao_co' ||
+    s.code === 'CHAO_CO' ||
+    s.name?.toLowerCase().includes('chào cờ') ||
+    s.name?.toLowerCase().includes('chao co')
+  );
+  const shlSubj = (workingDraft.subjects || []).find(s =>
+    s.id === 'subj_hdtn_hn' ||
+    s.code === 'HDTN_HN' ||
+    s.name?.toLowerCase().includes('hđtn') ||
+    s.name?.toLowerCase().includes('sinh hoạt')
+  );
+  const eslSubj = (workingDraft.subjects || []).find(s =>
+    s.id === 'subj_ta_esl' ||
+    s.code === 'TA_ESL' ||
+    s.name?.toLowerCase().includes('esl') ||
+    s.name?.toLowerCase().includes('tiếng anh esl')
+  );
+  const clbSubj = (workingDraft.subjects || []).find(s =>
+    s.id === 'subj_clb' ||
+    s.code === 'CLB' ||
+    s.name?.toLowerCase().includes('câu lạc bộ') ||
+    s.name?.toLowerCase().includes('clb')
+  );
+
+  const isChaoCo = Boolean(currentCell && (currentCell.subjectId === chaoCoSubj?.id || currentCell.note?.includes('Chào cờ')));
+  const isSHL = Boolean(currentCell && (currentCell.note?.includes('Sinh hoạt lớp') || (!isChaoCo && currentCell.subjectId === shlSubj?.id)));
+  const isESL = Boolean(currentCell && (currentCell.subjectId === eslSubj?.id || currentCell.note?.includes('ESL')));
+  const isCLB = Boolean(currentCell && (currentCell.subjectId === clbSubj?.id || currentCell.note?.includes('CLB') || currentCell.note?.includes('Câu lạc bộ')));
+  const homeroomTeacher = (workingDraft.teachers || []).find(t => t.id === cls?.homeroomTeacherId);
 
   // Suggestion list: ONLY filter { subject, teacher } pairs from draftAssignments with classId === classId
-  const classAssignments = (workingDraft.draftAssignments || []).filter(a => a.classId === classId);
+  const classAssignments = (workingDraft.draftAssignments || []).filter(a => a.classId === classId && subjectsForClass(workingDraft,classId).some(s=>s.id===a.subjectId) && (cls?.grade!==11 || ['COMMON',grade11Track].includes(subjectTrack(workingDraft.subjects.find(s=>s.id===a.subjectId)))));
 
   const rect = anchorElement.getBoundingClientRect();
   const popoverWidth = 320;
@@ -2636,8 +2881,8 @@ function openTimetableCellPopover({ classId, timeSlotId, day, period, anchorElem
   if (left < 10) left = 10;
 
   let top = rect.bottom + 6;
-  if (top + 380 > window.innerHeight) {
-    top = Math.max(10, rect.top - 370);
+  if (top + 450 > window.innerHeight) {
+    top = Math.max(10, rect.top - 440);
   }
 
   const sessionText = (slot?.session === 'MORNING' || period <= 5) ? 'Sáng' : 'Chiều';
@@ -2647,7 +2892,7 @@ function openTimetableCellPopover({ classId, timeSlotId, day, period, anchorElem
   container.id = 'active-matrix-popover-root';
   container.innerHTML = `
     <div class="matrix-popover-overlay" data-action="close-popover"></div>
-    <div class="matrix-popover timetable-popover" style="top:${top}px;left:${left}px;width:${popoverWidth}px;">
+    <div class="matrix-popover timetable-popover" style="top:${top}px;left:${left}px;width:${popoverWidth}px;max-height:85vh;overflow-y:auto;">
       <div class="popover-header">
         <div>
           <div style="font-size:12px;color:#184239;font-weight:700;">Lớp ${esc(cls?.name || '')}</div>
@@ -2656,21 +2901,122 @@ function openTimetableCellPopover({ classId, timeSlotId, day, period, anchorElem
         <button type="button" class="popover-close-btn" data-action="close-popover" title="Đóng">✕</button>
       </div>
 
+      ${currentCell ? `
+        <div class="popover-lock-bar ${isCellLocked ? 'locked' : 'unlocked'}">
+          <div style="min-width:0;flex:1;">
+            <strong style="font-size:11px;color:${isCellLocked ? '#991b1b' : '#166534'};display:block;">
+              ${isCellLocked ? '🔒 Tiết đang khóa cố định' : '🔓 Tiết đang mở (tự do)'}
+            </strong>
+            <small style="font-size:9px;color:${isCellLocked ? '#b91c1c' : '#15803d'};display:block;margin-top:1px;">
+              ${isCellLocked ? 'Mở khóa nếu cần đổi môn, đổi giáo viên hoặc xóa tiết này' : 'Có thể khóa để tránh xáo trộn ngoài ý muốn'}
+            </small>
+          </div>
+          <button type="button" class="btn-popover-toggle-lock ${isCellLocked ? 'unlock' : 'lock'}"
+                  data-action="popover-toggle-lock"
+                  data-class="${esc(classId)}"
+                  data-slot="${esc(timeSlotId)}"
+                  title="${isCellLocked ? 'Nhấp để mở khóa tiết học này' : 'Nhấp để khóa cố định tiết học này'}">
+            ${isCellLocked ? '🔓 Mở khóa tiết' : '🔒 Khóa tiết'}
+          </button>
+        </div>
+      ` : ''}
+
+      <!-- MỤC HOẠT ĐỘNG CỐ ĐỊNH / CHUNG (CHÀO CỜ, SHL, TA ESL, CLB) -->
+      <div class="popover-section-label" style="display:flex;align-items:center;justify-content:space-between;margin-top:8px;">
+        <span>HOẠT ĐỘNG CỐ ĐỊNH / CHUNG</span>
+        <span style="font-size:9px;color:#059669;font-weight:700;">Toàn trường</span>
+      </div>
+      <div class="popover-special-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
+        <!-- Chào cờ -->
+        <button type="button" class="popover-suggestion-item free ${isChaoCo ? 'selected' : ''}"
+                data-action="assign-special-activity"
+                data-type="chao_co"
+                data-class="${esc(classId)}"
+                data-slot="${esc(timeSlotId)}"
+                data-day="${day}"
+                data-period="${period}"
+                style="padding:6px 8px;border-radius:6px;${isChaoCo ? 'background:#fef2f2;border:1px solid #f87171;' : 'border:1px solid #e2e8f0;'}"
+                title="Gán tiết Chào cờ (HĐTN-HN: Sinh hoạt dưới cờ)">
+          <i class="item-color-dot" style="background:#dc2626;"></i>
+          <div class="item-info" style="min-width:0;flex:1;">
+            <strong style="font-size:11px;color:${isChaoCo ? '#991b1b' : 'inherit'};display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🚩 Chào cờ</strong>
+            <span class="teacher-free-label" style="font-size:9px;color:#64748b;display:block;">Toàn trường</span>
+          </div>
+          ${isChaoCo ? '<span class="item-current-badge" style="background:#dc2626;color:#fff;font-size:9px;padding:2px 5px;">✓</span>' : '<span class="item-assign-action" style="background:#fee2e2;color:#dc2626;border:1px solid #fca5a5;font-size:9px;padding:2px 5px;">Chọn</span>'}
+        </button>
+
+        <!-- Sinh hoạt lớp -->
+        <button type="button" class="popover-suggestion-item free ${isSHL ? 'selected' : ''}"
+                data-action="assign-special-activity"
+                data-type="sinh_hoat_lop"
+                data-class="${esc(classId)}"
+                data-slot="${esc(timeSlotId)}"
+                data-day="${day}"
+                data-period="${period}"
+                style="padding:6px 8px;border-radius:6px;${isSHL ? 'background:#eef2ff;border:1px solid #818cf8;' : 'border:1px solid #e2e8f0;'}"
+                title="Gán tiết Sinh hoạt lớp với GVCN">
+          <i class="item-color-dot" style="background:#4f46e5;"></i>
+          <div class="item-info" style="min-width:0;flex:1;">
+            <strong style="font-size:11px;color:${isSHL ? '#3730a3' : 'inherit'};display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🏫 SH Lớp</strong>
+            <span class="teacher-free-label" style="font-size:9px;color:#64748b;display:block;">GVCN</span>
+          </div>
+          ${isSHL ? '<span class="item-current-badge" style="background:#4f46e5;color:#fff;font-size:9px;padding:2px 5px;">✓</span>' : '<span class="item-assign-action" style="background:#e0e7ff;color:#4338ca;border:1px solid #c7d2fe;font-size:9px;padding:2px 5px;">Chọn</span>'}
+        </button>
+
+        <!-- TA ESL -->
+        <button type="button" class="popover-suggestion-item free ${isESL ? 'selected' : ''}"
+                data-action="assign-special-activity"
+                data-type="ta_esl"
+                data-class="${esc(classId)}"
+                data-slot="${esc(timeSlotId)}"
+                data-day="${day}"
+                data-period="${period}"
+                style="padding:6px 8px;border-radius:6px;${isESL ? 'background:#f5f3ff;border:1px solid #8b5cf6;' : 'border:1px solid #e2e8f0;'}"
+                title="Gán tiết Tiếng Anh ESL">
+          <i class="item-color-dot" style="background:#6366f1;"></i>
+          <div class="item-info" style="min-width:0;flex:1;">
+            <strong style="font-size:11px;color:${isESL ? '#5b21b6' : 'inherit'};display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🌐 TA ESL</strong>
+            <span class="teacher-free-label" style="font-size:9px;color:#64748b;display:block;">Tiếng Anh ESL</span>
+          </div>
+          ${isESL ? '<span class="item-current-badge" style="background:#6366f1;color:#fff;font-size:9px;padding:2px 5px;">✓</span>' : '<span class="item-assign-action" style="background:#ede9fe;color:#5b21b6;border:1px solid #ddd6fe;font-size:9px;padding:2px 5px;">Chọn</span>'}
+        </button>
+
+        <!-- CLB -->
+        <button type="button" class="popover-suggestion-item free ${isCLB ? 'selected' : ''}"
+                data-action="assign-special-activity"
+                data-type="clb"
+                data-class="${esc(classId)}"
+                data-slot="${esc(timeSlotId)}"
+                data-day="${day}"
+                data-period="${period}"
+                style="padding:6px 8px;border-radius:6px;${isCLB ? 'background:#ecfdf5;border:1px solid #10b981;' : 'border:1px solid #e2e8f0;'}"
+                title="Gán tiết Câu lạc bộ (CLB)">
+          <i class="item-color-dot" style="background:#059669;"></i>
+          <div class="item-info" style="min-width:0;flex:1;">
+            <strong style="font-size:11px;color:${isCLB ? '#065f46' : 'inherit'};display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">🎯 CLB</strong>
+            <span class="teacher-free-label" style="font-size:9px;color:#64748b;display:block;">Câu lạc bộ</span>
+          </div>
+          ${isCLB ? '<span class="item-current-badge" style="background:#059669;color:#fff;font-size:9px;padding:2px 5px;">✓</span>' : '<span class="item-assign-action" style="background:#d1fae5;color:#047857;border:1px solid #a7f3d0;font-size:9px;padding:2px 5px;">Chọn</span>'}
+        </button>
+      </div>
+
       <div class="popover-section-label">
         <span>GỢI Ý TỪ PHÂN CÔNG LỚP (${classAssignments.length} môn)</span>
       </div>
 
+      ${cls?.grade===11?`<label>Tổ hợp lớp 11 <select id="grade11-popover-track" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}"><option value="TN" ${grade11Track==='TN'?'selected':''}>Tự nhiên</option><option value="XH" ${grade11Track==='XH'?'selected':''}>Xã hội</option></select></label>`:''}
       <div class="popover-suggestions-list">
         ${classAssignments.length ? classAssignments.map(a => {
           const subj = (workingDraft.subjects || []).find(x => x.id === a.subjectId);
           const tea = (workingDraft.teachers || []).find(x => x.id === a.teacherId);
-          const busyInfo = isTeacherBusy(a.teacherId, dayLabel, period, classId, workingDraft.draftSchedule, slot?.id);
+          const teaColor = a.teacherId ? getTeacherColor(workingDraft, a.teacherId) : (subj?.color || '#3b82f6');
+          const busyInfo = lessonBusy(workingDraft,{teacherId:a.teacherId,classId,timeSlotId:slot?.id,subjectId:a.subjectId});
           const isCurrent = currentCell && currentCell.subjectId === a.subjectId && currentCell.teacherId === a.teacherId;
 
           if (busyInfo.isBusy) {
             return `
               <div class="popover-suggestion-item busy" title="${esc(tea?.fullName || 'GV')} bận tại ${esc(busyInfo.conflictingClass?.name || 'lớp khác')}">
-                <i class="item-color-dot" style="background:${esc(subj?.color || '#94a3b8')};"></i>
+                <i class="item-color-dot" style="background:${esc(teaColor)};"></i>
                 <div class="item-info">
                   <strong>${esc(subj?.name || 'Môn học')}</strong>
                   <span class="teacher-busy-label">⛔ ${esc(tea?.fullName || 'GV')} bận tại ${esc(busyInfo.conflictingClass?.name || 'lớp khác')}</span>
@@ -2688,36 +3034,50 @@ function openTimetableCellPopover({ classId, timeSlotId, day, period, anchorElem
                     data-period="${period}"
                     data-subject="${esc(a.subjectId)}"
                     data-teacher="${esc(a.teacherId)}">
-              <i class="item-color-dot" style="background:${esc(subj?.color || '#3b82f6')};"></i>
+              <i class="item-color-dot" style="background:${esc(teaColor)};"></i>
               <div class="item-info">
                 <strong>${esc(subj?.name || 'Môn học')}</strong>
-                <span class="teacher-free-label">👨‍🏫 ${esc(tea?.fullName || 'Chưa gán GV')} · Rảnh</span>
+                <span class="teacher-free-label" style="display:flex;align-items:center;gap:4px;"><i style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${esc(teaColor)};flex-shrink:0;"></i>👨‍🏫 ${esc(tea?.fullName || 'Chưa gán GV')} · Rảnh</span>
               </div>
               ${isCurrent ? '<span class="item-current-badge">✓ Đang gán</span>' : '<span class="item-assign-action">Gán</span>'}
             </button>
           `;
         }).join('') : `
-          <div style="padding:14px;text-align:center;color:#6b7280;font-size:11px;">
+          <div style="padding:10px;text-align:center;color:#6b7280;font-size:11px;">
             Lớp <strong>${esc(cls?.name || '')}</strong> chưa có môn nào trong Ma trận phân công.
-            <div style="margin-top:8px;">
+            <div style="margin-top:6px;">
               <button type="button" class="popover-goto-matrix-btn" data-set-matrix-mode="assignment">Chuyển sang Ma trận phân công</button>
             </div>
           </div>
         `}
       </div>
 
-      ${currentCell ? `
-        <div class="popover-footer">
+      <div class="popover-footer" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;margin-top:8px;border-top:1px solid #e2e8f0;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          ${currentCell ? `
+            <button type="button" class="btn-popover-toggle-lock" data-action="popover-toggle-lock"
+                    data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}"
+                    style="background:none;border:none;color:${isCellLocked ? '#dc2626' : '#16a34a'};font-size:10px;font-weight:700;cursor:pointer;padding:0;text-decoration:underline;">
+              ${isCellLocked ? '🔓 Mở khóa' : '🔒 Khóa tiết'}
+            </button>
+          ` : ''}
+          <button type="button" data-action="open-cell-full-editor" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}"
+                  style="background:none;border:none;color:#475569;font-size:10px;font-weight:600;cursor:pointer;padding:0;text-decoration:underline;">
+            ✏️ Môn khác / Nhập tay
+          </button>
+        </div>
+        ${currentCell ? `
           <button type="button" class="popover-clear-slot-btn"
-                  data-action="popover-clear-slot"
+                  data-action="popover-clear-slot" data-track="${cls?.grade===11?(subjectTrack(workingDraft.subjects.find(s=>s.id===currentCell.subjectId))==='COMMON'?'COMMON':grade11Track):''}"
                   data-class="${esc(classId)}"
                   data-slot="${esc(timeSlotId)}"
                   data-day="${day}"
-                  data-period="${period}">
-            ✕ Xóa tiết này
+                  data-period="${period}"
+                  style="width:auto;padding:5px 10px;margin:0;">
+            ✕ Xóa tiết
           </button>
-        </div>
-      ` : ''}
+        ` : ''}
+      </div>
     </div>
   `;
   document.body.appendChild(container);
@@ -2898,7 +3258,7 @@ function openTeacherImportPreviewModal({ fileName, parsedTeachers }) {
   `);
 }
 
-function cellEditor(classId, timeSlotId) {
+function cellEditor(classId, timeSlotId, selectedTrack = '') {
   recordCurrentScrollPositions();
   if (!canEditWorking()) {
     toast('Chỉ Người xếp lịch hoặc Quản trị viên mới được sửa ô ở bản nháp.');
@@ -2906,13 +3266,16 @@ function cellEditor(classId, timeSlotId) {
   }
   const cls = (state.classes || []).find(c => c.id === classId);
   const slot = (state.timeSlots || []).find(s => s.id === timeSlotId);
-  const cell = (state.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+  const containerCell = (state.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+  const chosenTrack = selectedTrack || (containerCell ? subjectTrack(state.subjects.find(s=>s.id===containerCell.subjectId)) : 'COMMON') || 'COMMON';
+  const cell = cls?.grade===11 ? cellLessons(state,containerCell).find(l=>l.track===chosenTrack) : containerCell;
+  const allowedSubjects=subjectsForClass(state,classId,cls?.grade===11?chosenTrack:'');
   const currentSub = cell ? (state.subjects || []).find(s => s.id === cell.subjectId) : null;
   const currentTea = cell ? (state.teachers || []).find(t => t.id === cell.teacherId) : null;
   const locked = !!cell?.locked;
 
   openDialog(`
-    <form id="cell-form" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}">
+    <form id="cell-form" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}" data-track="${cls?.grade===11?chosenTrack:''}">
       <div class="dialog-title">
         <div>
           <div class="eyebrow">CHỈNH SỬA & NHẬP LIỆU Ô LỊCH</div>
@@ -2922,6 +3285,7 @@ function cellEditor(classId, timeSlotId) {
         ${closeButton}
       </div>
       ${locked ? '<div class="notice">Ô đã khóa. Mở khóa để thay đổi môn, giáo viên hoặc xóa.</div>' : ''}
+      ${cls?.grade===11?`<label>Tổ hợp <select id="grade11-editor-track" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}">${[['COMMON','Môn chung'],['TN','Tự nhiên'],['XH','Xã hội']].map(([v,n])=>`<option value="${v}" ${chosenTrack===v?'selected':''}>${n}</option>`).join('')}</select></label>`:''}
       <fieldset ${locked ? 'disabled' : ''}>
         <!-- Chuyển đổi phương thức: Nhập liệu trực tiếp vs Chọn từ danh mục -->
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;background:#f0f4ee;padding:3px 4px;border-radius:8px;">
@@ -2943,7 +3307,7 @@ function cellEditor(classId, timeSlotId) {
             <label style="margin-top:0;">Môn học (Gõ tên / mã)
               <input type="text" name="subjectInput" id="cell-subject-input" list="subjects-datalist" placeholder="Toán, Văn, TOAN..." value="${esc(currentSub?.name || '')}" autocomplete="off">
               <datalist id="subjects-datalist">
-                ${(state.subjects || []).map(s => `<option value="${esc(s.name)}">${esc(s.code)} · ${esc(s.name)}</option>`).join('')}
+                ${allowedSubjects.map(s => `<option value="${esc(s.name)}">${esc(s.code)} · ${esc(s.name)}</option>`).join('')}
               </datalist>
             </label>
 
@@ -2963,7 +3327,7 @@ function cellEditor(classId, timeSlotId) {
         <div id="panel-mode-select" style="display:none;">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             <label style="margin-top:0;">Môn học
-              <select name="subjectId" id="cell-subject-select">${selectOptions(state.subjects || [], cell?.subjectId, 'name', '— Chọn môn học —')}</select>
+              <select name="subjectId" id="cell-subject-select">${selectOptions(allowedSubjects, cell?.subjectId, 'name', '— Chọn môn học —')}</select>
             </label>
             <label style="margin-top:0;">Giáo viên
               <select name="teacherId" id="cell-teacher-select">${selectOptions(state.teachers || [], cell?.teacherId, 'fullName', '— Chưa chọn giáo viên —')}</select>
@@ -2987,7 +3351,7 @@ function cellEditor(classId, timeSlotId) {
           <button type="button" data-action="toggle-lock" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}">
             ${locked ? 'Mở khóa' : 'Khóa ô'}
           </button>
-          <button type="button" data-action="delete-cell" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}" class="danger-link" ${locked ? 'disabled' : ''}>
+          <button type="button" data-action="delete-cell" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}" data-track="${cls?.grade===11?chosenTrack:''}" class="danger-link" ${locked ? 'disabled' : ''}>
             Xóa ô
           </button>
         `
@@ -3054,6 +3418,12 @@ function entityEditor(kind, id) {
   `);
 }
 
+function schoolWeekText(school={}) {
+ const dateLabel=v=>/^\d{4}-\d{2}-\d{2}$/.test(v||'')?v.split('-').reverse().join('/'):'';
+ const range=school.weekStartDate&&school.weekEndDate?dateLabel(school.weekStartDate)+' – '+dateLabel(school.weekEndDate):(school.weekDates||'Chưa đặt khoảng ngày');
+ return (school.currentWeek||'Chưa đặt tuần học')+' · '+range;
+}
+
 function schoolEditor() {
   if (!isSchedulerRole()) return;
   openDialog(`
@@ -3062,8 +3432,8 @@ function schoolEditor() {
         <h2>Thông tin nhà trường</h2>
         ${closeButton}
       </div>
-      ${[['name', 'Tên trường'], ['year', 'Năm học'], ['term', 'Học kỳ'], ['appliedDate', 'Áp dụng từ']]
-        .map(([key, label]) => `<label>${label}<input name="${key}" value="${esc(state.school?.[key] || '')}" ${key === 'appliedDate' ? 'type="date"' : 'required maxlength="120"'}></label>`)
+      ${[['name', 'Tên trường'], ['year', 'Năm học'], ['term', 'Học kỳ'], ['currentWeek', 'Tuần học (ví dụ: Tuần 9)'], ['weekStartDate', 'Từ ngày'], ['weekEndDate', 'Đến ngày'], ['appliedDate', 'Áp dụng từ']]
+        .map(([key, label]) => `<label>${label}<input name="${key}" value="${esc(state.school?.[key] || '')}" ${['appliedDate','weekStartDate','weekEndDate'].includes(key) ? 'type="date"' : 'required maxlength="120"'}></label>`)
         .join('')}
       <div id="form-error" class="form-error" role="alert"></div>
       <div class="dialog-actions">
@@ -3249,6 +3619,46 @@ const actions = {
     download(`tkb-sao-luu-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(displayed(), null, 2));
   },
   print: () => window.print(),
+  'print-poster': () => window.print(),
+  'export-timetable-image': async () => {
+    const poster = document.querySelector('#vaschools-timetable-poster');
+    if (!poster) {
+      toast('Không tìm thấy khung thời khóa biểu mẫu VASchools.');
+      return;
+    }
+    const pData = (publishedTimetable && publishedTimetable.isPublished && publishedTimetable.data) ? publishedTimetable.data : (state || workingDraft);
+    const availableClasses = (pData.classes || state.classes || []);
+    const activeClassId = selectedHomeroomClassId || availableClasses[0]?.id;
+    const currentClass = availableClasses.find(c => c.id === activeClassId) || availableClasses[0];
+    const isGrade11 = (currentClass?.grade === 11) || /\b11\b/.test(currentClass?.name || '') || /\b11\b/.test(currentClass?.code || '');
+    let exportClassName = currentClass ? currentClass.name : 'Lop';
+    if (isGrade11) {
+      if (homeroomExportTrack === 'XH') exportClassName += '_Ban_Xa_Hoi';
+      else if (homeroomExportTrack === 'TN') exportClassName += '_Ban_Tu_Nhien';
+    }
+    const weekRaw = pData.school?.week || 'Tuần 11';
+    const filename = computeExportFileName(exportClassName, weekRaw);
+
+    toast('Đang tạo ảnh thời khóa biểu độ phân giải cao...');
+    try {
+      const canvas = await html2canvas(poster, {
+        scale: 2.5,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+      const dataUrl = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      toast(`Đã tải ảnh về máy: ${filename}`);
+    } catch (err) {
+      toast('Lỗi khi xuất ảnh TKB: ' + err.message);
+    }
+  },
   csv: () => download('thoi-khoa-bieu.csv', exportCsv(displayed()), 'text/csv;charset=utf-8'),
   density: () => {
     recordCurrentScrollPositions();
@@ -3429,7 +3839,7 @@ const actions = {
     const dayLabel = `Thứ ${day}`;
 
     // Conflict check
-    const busyInfo = isTeacherBusy(teacherId, dayLabel, period, classId, workingDraft.draftSchedule, timeSlotId);
+    const busyInfo = lessonBusy(workingDraft,{teacherId,classId,timeSlotId,subjectId});
     if (busyInfo.isBusy) {
       const teaName = text(workingDraft.teachers, teacherId, 'fullName');
       const confName = busyInfo.conflictingClass?.name || 'lớp khác';
@@ -3438,7 +3848,13 @@ const actions = {
     }
 
     try {
-      const next = assignLessonToScheduleCell(workingDraft, {
+      const existing = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+      const previousSnapshot = clone(workingDraft.timetableCells || []);
+      let draftToUse = workingDraft;
+      if (existing?.locked) {
+        draftToUse = toggleCellLock(draftToUse, classId, timeSlotId);
+      }
+      let next = assignLessonToScheduleCell(draftToUse, {
         classId,
         day: dayLabel,
         period,
@@ -3446,6 +3862,26 @@ const actions = {
         subjectId,
         teacherId
       });
+      const clsName = text(workingDraft.classes, classId);
+      const subjName = text(workingDraft.subjects, subjectId);
+      const teaName = text(workingDraft.teachers, teacherId, 'fullName') || 'Chưa gán GV';
+      const slot = (workingDraft.timeSlots || []).find(s => s.id === timeSlotId);
+      const slotText = slot ? `Thứ ${slot.dayOfWeek} · Tiết ${slot.period}` : `${dayLabel} Tiết ${period}`;
+      const desc = `Gán môn ${subjName} (${teaName}) cho lớp ${clsName} vào ${slotText}`;
+      const newCell = (next.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+
+      next = recordChange(next, {
+        actionType: 'ASSIGN',
+        description: desc,
+        classId,
+        timeSlotId,
+        slotLabel: slotText,
+        previousCell: existing,
+        newCell,
+        actor: currentUser?.email || 'Người xếp lịch',
+        previousSnapshot
+      });
+
       if (await syncWorkingToCloud(next)) {
         render();
         toast('Đã xếp tiết học thành công.');
@@ -3465,12 +3901,37 @@ const actions = {
     if (!canEditWorking()) return;
     const dayLabel = `Thứ ${day}`;
     try {
-      const next = removeLessonFromScheduleCell(workingDraft, {
+      const existing = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+      const previousSnapshot = clone(workingDraft.timetableCells || []);
+      let draftToUse = workingDraft;
+      if (existing?.locked) {
+        draftToUse = toggleCellLock(draftToUse, classId, timeSlotId);
+      }
+      let next = removeLessonFromScheduleCell(draftToUse, {
         classId,
         day: dayLabel,
         period,
-        timeSlotId
+        timeSlotId,
+        track:element.dataset.track||''
       });
+      const clsName = text(workingDraft.classes, classId);
+      const subjName = existing ? text(workingDraft.subjects, existing.subjectId) : 'Tiết học';
+      const slot = (workingDraft.timeSlots || []).find(s => s.id === timeSlotId);
+      const slotText = slot ? `Thứ ${slot.dayOfWeek} · Tiết ${slot.period}` : `${dayLabel} Tiết ${period}`;
+      const desc = `Xóa tiết ${subjName} khỏi lớp ${clsName} vào ${slotText}`;
+
+      next = recordChange(next, {
+        actionType: 'CLEAR',
+        description: desc,
+        classId,
+        timeSlotId,
+        slotLabel: slotText,
+        previousCell: existing,
+        newCell: null,
+        actor: currentUser?.email || 'Người xếp lịch',
+        previousSnapshot
+      });
+
       if (await syncWorkingToCloud(next)) {
         render();
         toast('Đã xóa tiết học khỏi ô lịch.');
@@ -3478,6 +3939,445 @@ const actions = {
     } catch (err) {
       toast('Lỗi khi xóa ô: ' + err.message);
     }
+  },
+  'popover-toggle-lock': async element => {
+    recordCurrentScrollPositions();
+    if (!canEditWorking()) {
+      toast('Chỉ Người xếp lịch mới có quyền mở khóa hoặc khóa tiết học.');
+      return;
+    }
+    try {
+      const classId = element.dataset.class;
+      const timeSlotId = element.dataset.slot;
+      const previousSnapshot = clone(workingDraft.timetableCells || []);
+      const cell = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+      const newLocked = cell ? !cell.locked : false;
+      let next = toggleCellLock(workingDraft, classId, timeSlotId);
+      if (cell) {
+        const partner = jointPartner(workingDraft, classId, cell.subjectId);
+        if (partner) {
+          const pCell = next.timetableCells.find(c => c.classId === partner.id && c.timeSlotId === timeSlotId);
+          if (pCell) pCell.locked = newLocked;
+        }
+      }
+      closePopover();
+      const clsName = text(workingDraft.classes, classId);
+      const subjName = cell ? text(workingDraft.subjects, cell.subjectId) : 'tiết học';
+      const slot = (workingDraft.timeSlots || []).find(s => s.id === timeSlotId);
+      const slotText = slot ? `Thứ ${slot.dayOfWeek} · Tiết ${slot.period}` : '';
+      const desc = `${newLocked ? 'Khóa cố định' : 'Mở khóa'} môn ${subjName} lớp ${clsName} vào ${slotText}`;
+      const newCell = (next.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+
+      next = recordChange(next, {
+        actionType: 'LOCK',
+        description: desc,
+        classId,
+        timeSlotId,
+        slotLabel: slotText,
+        previousCell: cell,
+        newCell,
+        actor: currentUser?.email || 'Người xếp lịch',
+        previousSnapshot
+      });
+
+      if (await syncWorkingToCloud(next)) {
+        render();
+        toast(newLocked ? 'Đã khóa cố định tiết học.' : 'Đã mở khóa tiết học! Bạn có thể tự do điều chỉnh hoặc đổi môn.');
+      }
+    } catch (err) {
+      toast('Lỗi khi thay đổi khóa tiết học: ' + (err.message || err));
+    }
+  },
+  'quick-toggle-cell-lock': async element => {
+    recordCurrentScrollPositions();
+    if (!canEditWorking()) {
+      toast('Chỉ Người xếp lịch mới có quyền mở khóa tiết học.');
+      return;
+    }
+    try {
+      const classId = element.dataset.class;
+      const timeSlotId = element.dataset.slot;
+      const previousSnapshot = clone(workingDraft.timetableCells || []);
+      const cell = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+      const newLocked = cell ? !cell.locked : false;
+      let next = toggleCellLock(workingDraft, classId, timeSlotId);
+      if (cell) {
+        const partner = jointPartner(workingDraft, classId, cell.subjectId);
+        if (partner) {
+          const pCell = next.timetableCells.find(c => c.classId === partner.id && c.timeSlotId === timeSlotId);
+          if (pCell) pCell.locked = newLocked;
+        }
+      }
+      const clsName = text(workingDraft.classes, classId);
+      const subjName = cell ? text(workingDraft.subjects, cell.subjectId) : 'tiết học';
+      const slot = (workingDraft.timeSlots || []).find(s => s.id === timeSlotId);
+      const slotText = slot ? `Thứ ${slot.dayOfWeek} · Tiết ${slot.period}` : '';
+      const desc = `${newLocked ? 'Khóa cố định' : 'Mở khóa'} môn ${subjName} lớp ${clsName} vào ${slotText}`;
+      const newCell = (next.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+
+      next = recordChange(next, {
+        actionType: 'LOCK',
+        description: desc,
+        classId,
+        timeSlotId,
+        slotLabel: slotText,
+        previousCell: cell,
+        newCell,
+        actor: currentUser?.email || 'Người xếp lịch',
+        previousSnapshot
+      });
+
+      if (await syncWorkingToCloud(next)) {
+        render();
+        toast(newLocked ? 'Đã khóa tiết học.' : 'Đã mở khóa tiết học! Bạn có thể tự do chỉnh sửa.');
+      }
+    } catch (err) {
+      toast('Lỗi khi thay đổi khóa tiết học: ' + (err.message || err));
+    }
+  },
+  'unlock-all-fixed': async () => {
+    recordCurrentScrollPositions();
+    if (!canEditWorking()) {
+      if (activeVersion === 'published') {
+        toast('Bạn đang ở "Bản đã chốt" (chỉ xem). Hãy bấm chuyển sang "Bản đang xếp" để chỉnh sửa thời khóa biểu.');
+      } else {
+        toast('Chỉ Người xếp lịch hoặc Quản trị viên mới có quyền mở khóa môn cố định.');
+      }
+      return;
+    }
+    const lockedCount = (workingDraft.timetableCells || []).filter(c => c.locked).length;
+    if (lockedCount === 0) {
+      toast('Hiện không có tiết học nào đang bị khóa.');
+      return;
+    }
+    openDialog(`
+      <div class="dialog-title">
+        <div>
+          <h2>🔓 Mở khóa tất cả môn cố định</h2>
+          <p>Mở khóa toàn trường để tự do điều chỉnh thời khóa biểu</p>
+        </div>
+        ${closeButton}
+      </div>
+      <div style="padding:10px 0;">
+        <p style="font-size:13px;line-height:1.6;color:#334155;">
+          Hiện có <strong>${lockedCount} tiết học cố định</strong> (Chào cờ, Sinh hoạt lớp, TA ESL...) đang được khóa bảo vệ.
+        </p>
+        <p style="font-size:12px;color:#15803d;margin-top:8px;background:#f0fdf4;padding:10px;border-radius:6px;border-left:4px solid #16a34a;line-height:1.5;">
+          👉 Khi bấm <strong>"Xác nhận mở khóa"</strong>, bạn có thể tự do đổi môn, gán giáo viên khác hoặc xóa tiết ở bất kỳ ô nào trên thời khóa biểu.
+        </p>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" data-action="close">Hủy bỏ</button>
+        <button type="button" class="primary" data-action="confirm-unlock-all-fixed">✓ Xác nhận mở khóa tất cả (${lockedCount} tiết)</button>
+      </div>
+    `);
+  },
+  'confirm-unlock-all-fixed': async () => {
+    recordCurrentScrollPositions();
+    dialog.close();
+    try {
+      const lockedCount = (workingDraft.timetableCells || []).filter(c => c.locked).length;
+      const previousSnapshot = clone(workingDraft.timetableCells || []);
+      let next = unlockAllFixedCells(workingDraft);
+      next = recordChange(next, {
+        actionType: 'BATCH_UNLOCK',
+        description: `Mở khóa tất cả ${lockedCount} môn cố định trên toàn trường`,
+        actor: currentUser?.email || 'Người xếp lịch',
+        previousSnapshot
+      });
+      if (await syncWorkingToCloud(next)) {
+        render();
+        toast(`Đã mở khóa thành công tất cả ${lockedCount} tiết học trên thời khóa biểu!`);
+      }
+    } catch (err) {
+      toast('Lỗi khi mở khóa toàn bộ: ' + (err.message || err));
+    }
+  },
+  'assign-special-activity': async element => {
+    recordCurrentScrollPositions();
+    if (!canEditWorking()) {
+      toast('Chỉ Người xếp lịch mới có quyền xếp tiết học.');
+      return;
+    }
+    const type = element.dataset.type; // 'chao_co', 'sinh_hoat_lop', 'ta_esl', 'clb'
+    const classId = element.dataset.class;
+    const timeSlotId = element.dataset.slot;
+    closePopover();
+
+    try {
+      const existing = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+      const previousSnapshot = clone(workingDraft.timetableCells || []);
+      let next = assignSpecialActivity(workingDraft, {
+        classId,
+        timeSlotId,
+        type,
+        locked: type === 'chao_co'
+      });
+      const clsName = text(workingDraft.classes, classId);
+      const slot = (workingDraft.timeSlots || []).find(s => s.id === timeSlotId);
+      const slotText = slot ? `Thứ ${slot.dayOfWeek} · Tiết ${slot.period}` : '';
+      const actNames = {
+        chao_co: '🚩 Chào cờ',
+        sinh_hoat_lop: '🏫 Sinh hoạt lớp',
+        ta_esl: '🌐 TA ESL',
+        clb: '🎯 CLB'
+      };
+      const desc = `Gán tiết ${actNames[type] || 'hoạt động chung'} cho lớp ${clsName} vào ${slotText}`;
+      const newCell = (next.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+
+      next = recordChange(next, {
+        actionType: 'SPECIAL',
+        description: desc,
+        classId,
+        timeSlotId,
+        slotLabel: slotText,
+        previousCell: existing,
+        newCell,
+        actor: currentUser?.email || 'Người xếp lịch',
+        previousSnapshot
+      });
+
+      if (await syncWorkingToCloud(next)) {
+        render();
+        const toastMsgs = {
+          chao_co: '🚩 Đã chọn lại tiết Chào cờ thành công!',
+          sinh_hoat_lop: '🏫 Đã chọn lại tiết Sinh hoạt lớp thành công!',
+          ta_esl: '🌐 Đã chọn lại tiết TA ESL thành công!',
+          clb: '🎯 Đã chọn lại tiết CLB (Câu lạc bộ) thành công!'
+        };
+        toast(toastMsgs[type] || 'Đã xếp tiết thành công!');
+      }
+    } catch (err) {
+      toast('Lỗi khi xếp tiết đặc biệt: ' + (err.message || err));
+    }
+  },
+  'open-cell-full-editor': element => {
+    recordCurrentScrollPositions();
+    const classId = element.dataset.class;
+    const timeSlotId = element.dataset.slot;
+    closePopover();
+    cellEditor(classId, timeSlotId);
+  },
+  'reset-monday-flag-ceremony': async () => {
+    recordCurrentScrollPositions();
+    if (!canEditWorking()) {
+      if (activeVersion === 'published') {
+        toast('Bạn đang ở "Bản đã chốt" (chỉ xem). Hãy bấm chuyển sang "Bản đang xếp" để chỉnh sửa thời khóa biểu.');
+      } else {
+        toast('Chỉ Người xếp lịch hoặc Quản trị viên mới có quyền đặt lại tiết Chào cờ.');
+      }
+      return;
+    }
+    const count = (workingDraft.classes || []).length;
+    openDialog(`
+      <div class="dialog-title">
+        <div>
+          <h2>🚩 Đặt lại tiết Chào cờ sáng Thứ 2 (Tiết 1)</h2>
+          <p>Khôi phục quy chuẩn tiết Chào cờ đầu tuần cho toàn trường</p>
+        </div>
+        ${closeButton}
+      </div>
+      <div style="padding:10px 0;">
+        <p style="font-size:13px;line-height:1.6;color:#334155;">
+          Hệ thống sẽ tự động gán tiết <strong>🚩 Chào cờ (Sinh hoạt dưới cờ)</strong> vào <strong>sáng Thứ 2 (Tiết 1)</strong> cho tất cả <strong>${count} lớp học</strong> trong trường và khóa cố định lại.
+        </p>
+        <p style="font-size:12px;color:#991b1b;margin-top:8px;background:#fef2f2;padding:10px;border-radius:6px;border-left:4px solid #dc2626;line-height:1.5;">
+          💡 Thao tác này giúp khôi phục nhanh đồng loạt nếu các lớp trước đó bị xóa hoặc xếp nhầm tiết khác vào đầu tuần.
+        </p>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" data-action="close">Hủy bỏ</button>
+        <button type="button" class="primary" style="background:#dc2626;border-color:#dc2626;" data-action="confirm-reset-monday-flag-ceremony">✓ Xác nhận đặt lại cho ${count} lớp</button>
+      </div>
+    `);
+  },
+  'confirm-reset-monday-flag-ceremony': async () => {
+    recordCurrentScrollPositions();
+    dialog.close();
+    try {
+      const count = (workingDraft.classes || []).length;
+      const previousSnapshot = clone(workingDraft.timetableCells || []);
+      let next = resetMondayFlagCeremony(workingDraft);
+      next = recordChange(next, {
+        actionType: 'BATCH_RESET',
+        description: `Đặt lại tiết Chào cờ sáng Thứ 2 cho tất cả ${count} lớp học`,
+        actor: currentUser?.email || 'Người xếp lịch',
+        previousSnapshot
+      });
+      if (await syncWorkingToCloud(next)) {
+        render();
+        toast(`Đã khôi phục thành công tiết Chào cờ sáng Thứ 2 cho tất cả ${count} lớp học!`);
+      }
+    } catch (err) {
+      toast('Lỗi khi đặt lại tiết Chào cờ: ' + (err.message || err));
+    }
+  },
+  'undo-last-change': async () => {
+    recordCurrentScrollPositions();
+    if (!canEditWorking()) {
+      if (activeVersion === 'published') {
+        toast('Bạn đang ở "Bản đã chốt". Hãy chuyển sang "Bản đang xếp" để thực hiện hoàn tác.');
+      } else {
+        toast('Chỉ Người xếp lịch mới có quyền hoàn tác lịch.');
+      }
+      return;
+    }
+    try {
+      const next = undoChange(workingDraft);
+      const desc = next.lastUndoneDescription || 'thao tác gần nhất';
+      if (await syncWorkingToCloud(next)) {
+        render();
+        toast(`↶ Đã hoàn tác: ${desc}`);
+      }
+    } catch (err) {
+      toast('Không thể hoàn tác: ' + (err.message || err));
+    }
+  },
+  'undo-specific-change': async element => {
+    recordCurrentScrollPositions();
+    if (!canEditWorking()) {
+      toast('Chỉ Người xếp lịch mới có quyền hoàn tác lịch.');
+      return;
+    }
+    const changeId = element.dataset.changeId;
+    dialog.close();
+    try {
+      const next = undoChange(workingDraft, changeId);
+      const desc = next.lastUndoneDescription || 'thao tác đã chọn';
+      if (await syncWorkingToCloud(next)) {
+        render();
+        toast(`↶ Đã hoàn tác: ${desc}`);
+      }
+    } catch (err) {
+      toast('Không thể hoàn tác: ' + (err.message || err));
+    }
+  },
+  'open-change-history-modal': () => {
+    recordCurrentScrollPositions();
+    const history = Array.isArray(workingDraft.changeHistory) ? workingDraft.changeHistory : [];
+    const undoableCount = history.filter(h => h.canUndo && !h.undone).length;
+
+    const actionBadges = {
+      ASSIGN: '<span style="background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid #bbf7d0;">GÁN TIẾT</span>',
+      CLEAR: '<span style="background:#fee2e2;color:#991b1b;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid #fecaca;">XÓA TIẾT</span>',
+      SPECIAL: '<span style="background:#f3e8ff;color:#6b21a8;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid #e9d5ff;">HOẠT ĐỘNG CHUNG</span>',
+      LOCK: '<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid #fde68a;">KHÓA / MỞ KHÓA</span>',
+      BATCH_UNLOCK: '<span style="background:#e0e7ff;color:#3730a3;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid #c7d2fe;">MỞ KHÓA TOÀN TRƯỜNG</span>',
+      BATCH_RESET: '<span style="background:#ffe4e6;color:#9f1239;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid #fecdd3;">ĐẶT LẠI CHÀO CỜ</span>',
+      UNDO: '<span style="background:#dbeafe;color:#1e40af;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid #bfdbfe;">HOÀN TÁC</span>',
+      EDIT: '<span style="background:#e0f2fe;color:#0369a1;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;border:1px solid #bae6fd;">CHỈNH SỬA</span>'
+    };
+
+    openDialog(`
+      <div class="dialog-title">
+        <div>
+          <h2>📜 Nhật ký thay đổi Lịch tiết học</h2>
+          <p>Lưu trữ các thao tác gán, xóa, đổi môn và cho phép hoàn tác (Undo) tức thì</p>
+        </div>
+        ${closeButton}
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;background:#f8fafc;padding:10px 14px;border-radius:8px;border:1px solid #e2e8f0;">
+        <div style="font-size:12px;color:#334155;">
+          Tổng số: <strong>${history.length}</strong> lần thay đổi ghi nhận · Khả dụng hoàn tác: <strong>${undoableCount}</strong>
+        </div>
+        ${undoableCount > 0 && canEditWorking() ? `
+          <button type="button" class="primary" data-action="undo-last-change" style="font-size:11px;padding:6px 12px;display:flex;align-items:center;gap:6px;">
+            ↶ Hoàn tác thao tác mới nhất (Ctrl+Z)
+          </button>
+        ` : ''}
+      </div>
+
+      <div class="history-list-wrapper" style="max-height:60vh;overflow-y:auto;padding-right:4px;">
+        ${history.length === 0 ? `
+          <div style="padding:40px 20px;text-align:center;color:#64748b;">
+            <span style="font-size:36px;display:block;margin-bottom:8px;">📝</span>
+            <strong style="font-size:14px;color:#1e293b;display:block;">Chưa có thay đổi nào trong phiên hiện tại</strong>
+            <p style="font-size:12px;margin-top:4px;">Mọi thao tác gán tiết, xóa môn, mở khóa hay đặt lại môn cố định sẽ tự động được ghi lại tại đây.</p>
+          </div>
+        ` : `
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            ${history.map((h, index) => {
+              const isUndoable = h.canUndo && !h.undone && canEditWorking();
+              return `
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 14px;background:${h.undone ? '#f8fafc' : '#ffffff'};border:1px solid ${h.undone ? '#e2e8f0' : '#cbd5e1'};border-left:4px solid ${h.actionType === 'UNDO' ? '#2563eb' : h.actionType === 'CLEAR' ? '#dc2626' : h.actionType === 'ASSIGN' ? '#16a34a' : h.actionType === 'SPECIAL' ? '#7c3aed' : '#d97706'};border-radius:6px;opacity:${h.undone ? '0.65' : '1'};">
+                  <div style="min-width:0;flex:1;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">
+                      <span style="font-size:11px;color:#64748b;font-weight:600;">#${history.length - index} · ${esc(h.timeDisplay || '')}</span>
+                      ${actionBadges[h.actionType] || `<span style="font-size:10px;font-weight:700;">${esc(h.actionType)}</span>`}
+                      ${h.undone ? '<span style="font-size:9px;background:#f1f5f9;color:#64748b;padding:1px 5px;border-radius:3px;">✓ Đã hoàn tác</span>' : ''}
+                    </div>
+                    <div style="font-size:13px;font-weight:600;color:#1e293b;line-height:1.4;">
+                      ${esc(h.description)}
+                    </div>
+                    <div style="font-size:11px;color:#64748b;margin-top:2px;">
+                      Thực hiện bởi: <strong>${esc(h.actor || 'Người xếp lịch')}</strong>
+                      ${h.slotLabel ? ` · <span>${esc(h.slotLabel)}</span>` : ''}
+                    </div>
+                  </div>
+                  <div>
+                    ${isUndoable ? `
+                      <button type="button" class="btn-undo-item" data-action="undo-specific-change" data-change-id="${esc(h.id)}" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;padding:6px 12px;font-size:11px;font-weight:700;border-radius:6px;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:4px;" title="Hoàn tác lại trạng thái trước khi thực hiện thao tác này">
+                        ↶ Hoàn tác
+                      </button>
+                    ` : h.undone ? `
+                      <span style="font-size:11px;color:#94a3b8;font-style:italic;">Đã hoàn tác</span>
+                    ` : `
+                      <span style="font-size:11px;color:#94a3b8;">—</span>
+                    `}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        `}
+      </div>
+
+      <div class="dialog-actions" style="margin-top:14px;">
+        <button type="button" data-action="close">Đóng</button>
+      </div>
+    `);
+  },
+  'show-teacher-palette-modal': () => {
+    const teachers = workingDraft.teachers || [];
+    dialog.innerHTML = `
+      <div class="dialog-title">
+        <div>
+          <h2>🎨 Bảng màu phân định giáo viên (${teachers.length} GV)</h2>
+          <p>Mỗi giáo viên có 1 màu riêng biệt nhận diện nhất quán trên toàn bộ Thời khóa biểu.</p>
+        </div>
+        <button class="icon-button" data-action="close" title="Đóng">✕</button>
+      </div>
+      <div style="max-height:60vh;overflow-y:auto;padding-right:5px;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:10px;">
+        ${teachers.length ? teachers.map(t => {
+          const color = getTeacherColor(workingDraft, t.id);
+          const assignCount = (t.assignments || []).length;
+          return `
+            <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-left:5px solid ${color};border-radius:6px;">
+              <span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:${color};box-shadow:0 1px 3px rgba(0,0,0,0.15);flex-shrink:0;"></span>
+              <div style="min-width:0;flex:1;">
+                <strong style="font-size:12px;color:#1e293b;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(t.fullName)}</strong>
+                <span style="font-size:10px;color:#64748b;">${esc(t.code)} · ${assignCount} phân công</span>
+              </div>
+              <button type="button" data-action="highlight-from-palette" data-id="${esc(t.id)}" style="font-size:10px;padding:3px 7px;border-radius:4px;border:1px solid #cbd5e1;background:#fff;cursor:pointer;color:#334155;" title="Rọi sáng giáo viên này trên ma trận">
+                Rọi sáng
+              </button>
+            </div>
+          `;
+        }).join('') : '<p style="color:#64748b;font-size:12px;padding:15px;grid-column:1/-1;text-align:center;">Chưa có danh sách giáo viên.</p>'}
+      </div>
+      <div class="dialog-actions">
+        <button type="button" data-action="close">Đóng</button>
+      </div>
+    `;
+    dialog.showModal();
+  },
+  'highlight-from-palette': element => {
+    const teacherId = element.dataset.id;
+    selectedTeacherHighlight = teacherId;
+    dialog.close();
+    render();
+    toast(`Đang rọi sáng các tiết của: ${text(workingDraft.teachers, teacherId, 'fullName')}`);
   },
   'go-matrix': () => {
     view = 'matrix';
@@ -3582,14 +4482,61 @@ const actions = {
   'toggle-lock': async element => {
     if (!canEditWorking()) return;
     const { class: classId, slot: timeSlotId } = element.dataset;
+    const previousSnapshot = clone(workingDraft.timetableCells || []);
+    const existing = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+    const nextLocked = existing ? !existing.locked : false;
     const nextCells = workingDraft.timetableCells.map(c => (c.classId === classId && c.timeSlotId === timeSlotId ? { ...c, locked: !c.locked } : c));
-    const next = { ...workingDraft, timetableCells: nextCells };
+    let next = { ...workingDraft, timetableCells: nextCells };
+
+    const clsName = text(workingDraft.classes, classId);
+    const subjName = existing ? text(workingDraft.subjects, existing.subjectId) : 'tiết học';
+    const slot = (workingDraft.timeSlots || []).find(s => s.id === timeSlotId);
+    const slotText = slot ? `Thứ ${slot.dayOfWeek} · Tiết ${slot.period}` : '';
+    const desc = `${nextLocked ? 'Khóa cố định' : 'Mở khóa'} môn ${subjName} lớp ${clsName} vào ${slotText}`;
+
+    next = recordChange(next, {
+      actionType: 'LOCK',
+      description: desc,
+      classId,
+      timeSlotId,
+      slotLabel: slotText,
+      previousCell: existing,
+      newCell: nextCells.find(c => c.classId === classId && c.timeSlotId === timeSlotId),
+      actor: currentUser?.email || 'Người xếp lịch',
+      previousSnapshot
+    });
+
     if (await syncWorkingToCloud(next)) cellEditor(classId, timeSlotId);
   },
   'delete-cell': async element => {
     if (!canEditWorking()) return;
     try {
-      const next = deleteCell(workingDraft, element.dataset.class, element.dataset.slot);
+      const classId = element.dataset.class;
+      const timeSlotId = element.dataset.slot;
+      const track = element.dataset.track || '';
+      const existing = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+      const previousSnapshot = clone(workingDraft.timetableCells || []);
+
+      let next = deleteCell(workingDraft, classId, timeSlotId, track);
+
+      const clsName = text(workingDraft.classes, classId);
+      const subjName = existing ? text(workingDraft.subjects, existing.subjectId) : 'tiết học';
+      const slot = (workingDraft.timeSlots || []).find(s => s.id === timeSlotId);
+      const slotText = slot ? `Thứ ${slot.dayOfWeek} · Tiết ${slot.period}` : '';
+      const desc = `Xóa tiết ${subjName} khỏi lớp ${clsName} vào ${slotText}`;
+
+      next = recordChange(next, {
+        actionType: 'CLEAR',
+        description: desc,
+        classId,
+        timeSlotId,
+        slotLabel: slotText,
+        previousCell: existing,
+        newCell: null,
+        actor: currentUser?.email || 'Người xếp lịch',
+        previousSnapshot
+      });
+
       if (await syncWorkingToCloud(next)) {
         toast('Đã xóa ô lịch.');
         dialog.close();
@@ -3809,6 +4756,7 @@ document.addEventListener('click', async event => {
     return;
   }
   if (element.dataset.setMatrixMode) {
+    if ((currentWorkspace !== 'ADMIN' && currentWorkspace !== 'SCHEDULER') || !isSchedulerRole() || view === 'published_all') return;
     recordCurrentScrollPositions();
     matrixViewMode = element.dataset.setMatrixMode;
     render();
@@ -3904,6 +4852,7 @@ document.addEventListener('click', async event => {
     const day = Number(cellBtn.dataset.cellDay);
     const period = Number(cellBtn.dataset.cellPeriod);
     const dayLabel = `Thứ ${day}`;
+    if(cellBtn.dataset.cellTrack)grade11Track=cellBtn.dataset.cellTrack;
 
     if (matrixViewMode === 'timetable') {
       if (!canEditWorking()) {
@@ -3912,8 +4861,10 @@ document.addEventListener('click', async event => {
 
       // 1. Armed Card Mode: Click to assign directly without reopening popover
       if (armedCard) {
+        const armTrack=subjectTrack(workingDraft.subjects.find(s=>s.id===armedCard.subjectId));
+        if(cellBtn.dataset.cellTrack && armTrack!=='COMMON' && armTrack!==cellBtn.dataset.cellTrack){toast('Môn không thuộc tổ hợp của ô đang chọn.');return;}
         // Teacher conflict check
-        const busyInfo = isTeacherBusy(armedCard.teacherId, dayLabel, period, classId, workingDraft.draftSchedule, timeSlotId);
+        const busyInfo = lessonBusy(workingDraft,{teacherId:armedCard.teacherId,classId,timeSlotId,subjectId:armedCard.subjectId});
         if (busyInfo.isBusy) {
           const teaName = text(workingDraft.teachers, armedCard.teacherId, 'fullName');
           const confName = busyInfo.conflictingClass?.name || 'lớp khác';
@@ -3921,7 +4872,14 @@ document.addEventListener('click', async event => {
           return;
         }
 
-        const next = assignLessonToScheduleCell(workingDraft, {
+        const existing = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+        const previousSnapshot = clone(workingDraft.timetableCells || []);
+        let draftToUse = workingDraft;
+        if (existing?.locked) {
+          draftToUse = toggleCellLock(draftToUse, classId, timeSlotId);
+        }
+
+        let next = assignLessonToScheduleCell(draftToUse, {
           classId,
           day: dayLabel,
           period,
@@ -3929,9 +4887,29 @@ document.addEventListener('click', async event => {
           subjectId: armedCard.subjectId,
           teacherId: armedCard.teacherId
         });
+        const clsName = text(workingDraft.classes, classId);
+        const subjName = text(workingDraft.subjects, armedCard.subjectId);
+        const teaName = text(workingDraft.teachers, armedCard.teacherId, 'fullName') || 'Chưa gán GV';
+        const slot = (workingDraft.timeSlots || []).find(s => s.id === timeSlotId);
+        const slotText = slot ? `Thứ ${slot.dayOfWeek} · Tiết ${slot.period}` : `${dayLabel} Tiết ${period}`;
+        const desc = `Dùng cọ gán môn ${subjName} (${teaName}) cho lớp ${clsName} vào ${slotText}`;
+        const newCell = (next.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+
+        next = recordChange(next, {
+          actionType: 'ASSIGN',
+          description: desc,
+          classId,
+          timeSlotId,
+          slotLabel: slotText,
+          previousCell: existing,
+          newCell,
+          actor: currentUser?.email || 'Người xếp lịch',
+          previousSnapshot
+        });
+
         if (await syncWorkingToCloud(next)) {
           render();
-          toast(`Đã gán ${text(workingDraft.subjects, armedCard.subjectId)} (${text(workingDraft.teachers, armedCard.teacherId, 'fullName')}) vào lớp ${text(workingDraft.classes, classId)}.`);
+          toast(`Đã gán ${subjName} (${teaName}) vào lớp ${clsName}.`);
         }
         return;
       }
@@ -4124,6 +5102,19 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape') {
     closePopover();
   }
+  // Phím tắt Hoàn tác: Ctrl+Z hoặc Cmd+Z
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !event.shiftKey) {
+    const activeEl = document.activeElement;
+    const isEditingText = activeEl && (
+      activeEl.tagName === 'INPUT' ||
+      activeEl.tagName === 'TEXTAREA' ||
+      activeEl.isContentEditable
+    );
+    if (!isEditingText && canEditWorking()) {
+      event.preventDefault();
+      actions['undo-last-change']();
+    }
+  }
 });
 
 document.addEventListener('input', event => {
@@ -4234,11 +5225,15 @@ document.addEventListener('submit', async event => {
         teacherId: String(data.get('teacherId') || '')
       });
 
+      if (form.dataset.track && subjectTrack(res.state.subjects.find(s=>s.id===res.subjectId))!==form.dataset.track) throw Error('Môn đã chọn không thuộc tổ hợp đang sửa.');
       if (!res.subjectId) {
         throw Error('Vui lòng nhập hoặc chọn môn học.');
       }
 
-      const next = putCell(res.state, {
+      const existing = (workingDraft.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+      const previousSnapshot = clone(workingDraft.timetableCells || []);
+
+      let next = putCell(res.state, {
         classId,
         timeSlotId,
         subjectId: res.subjectId,
@@ -4246,6 +5241,27 @@ document.addEventListener('submit', async event => {
         note: String(data.get('note') || '').trim(),
         locked: data.has('locked')
       });
+
+      const clsName = text(res.state.classes || workingDraft.classes, classId);
+      const subjName = text(res.state.subjects, res.subjectId);
+      const teaName = res.teacherId ? text(res.state.teachers, res.teacherId, 'fullName') : 'Chưa gán GV';
+      const slot = (workingDraft.timeSlots || []).find(s => s.id === timeSlotId);
+      const slotText = slot ? `Thứ ${slot.dayOfWeek} · Tiết ${slot.period}` : '';
+      const desc = `Sửa ô: ${subjName} (${teaName}) lớp ${clsName} vào ${slotText}`;
+      const newCell = (next.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+
+      next = recordChange(next, {
+        actionType: 'EDIT',
+        description: desc,
+        classId,
+        timeSlotId,
+        slotLabel: slotText,
+        previousCell: existing,
+        newCell,
+        actor: currentUser?.email || 'Người xếp lịch',
+        previousSnapshot
+      });
+
       if (await syncWorkingToCloud(next)) {
         toast('Đã lưu ô lịch thành công.');
         dialog.close();
@@ -4282,7 +5298,10 @@ document.addEventListener('submit', async event => {
       const next = { ...workingDraft, [kind]: updatedList };
       if (await syncWorkingToCloud(next)) dialog.close();
     } else if (form.id === 'school-form') {
-      const school = Object.fromEntries([...data].map(([key, value]) => [key, String(value).trim()]));
+      const school = {...workingDraft.school,...Object.fromEntries([...data].map(([key, value]) => [key, String(value).trim()]))};
+      if (!!school.weekStartDate !== !!school.weekEndDate) throw Error('Vui lòng nhập đủ từ ngày và đến ngày.');
+      if(school.weekStartDate && school.weekEndDate < school.weekStartDate) throw Error('Ngày kết thúc phải bằng hoặc sau ngày bắt đầu.');
+      if(school.weekStartDate)school.weekDates=[school.weekStartDate,school.weekEndDate].map(v=>v.split('-').reverse().join('/')).join(' – ');
       if (!school.name || !school.year || !school.term) throw Error('Vui lòng điền tên trường, năm học và học kỳ.');
       const next = { ...workingDraft, school };
       if (await syncWorkingToCloud(next)) dialog.close();
@@ -4515,6 +5534,8 @@ document.addEventListener('drop', async event => {
   }
   if (!data?.subjectId || !data?.teacherId) return;
 
+  const dropTrack=subjectTrack(workingDraft.subjects.find(s=>s.id===data.subjectId));
+  if(cell.dataset.cellTrack && dropTrack!=='COMMON' && dropTrack!==cell.dataset.cellTrack){toast('Môn không thuộc tổ hợp của ô đang thả.');return;}
   const targetClassId = cell.dataset.cellClass;
   const timeSlotId = cell.dataset.cellSlot;
   const day = Number(cell.dataset.cellDay);
@@ -4522,7 +5543,7 @@ document.addEventListener('drop', async event => {
   const dayLabel = `Thứ ${day}`;
 
   // Teacher conflict check
-  const busyInfo = isTeacherBusy(data.teacherId, dayLabel, period, targetClassId, workingDraft.draftSchedule, timeSlotId);
+  const busyInfo = lessonBusy(workingDraft,{teacherId:data.teacherId,classId:targetClassId,timeSlotId,subjectId:data.subjectId});
   if (busyInfo.isBusy) {
     const teaName = text(workingDraft.teachers, data.teacherId, 'fullName');
     const confName = busyInfo.conflictingClass?.name || 'lớp khác';
@@ -4531,7 +5552,13 @@ document.addEventListener('drop', async event => {
   }
 
   try {
-    const next = assignLessonToScheduleCell(workingDraft, {
+    const existing = (workingDraft.timetableCells || []).find(c => c.classId === targetClassId && c.timeSlotId === timeSlotId);
+    const previousSnapshot = clone(workingDraft.timetableCells || []);
+    let draftToUse = workingDraft;
+    if (existing?.locked) {
+      draftToUse = toggleCellLock(draftToUse, targetClassId, timeSlotId);
+    }
+    let next = assignLessonToScheduleCell(draftToUse, {
       classId: targetClassId,
       day: dayLabel,
       period,
@@ -4539,9 +5566,29 @@ document.addEventListener('drop', async event => {
       subjectId: data.subjectId,
       teacherId: data.teacherId
     });
+    const clsName = text(workingDraft.classes, targetClassId);
+    const subjName = text(workingDraft.subjects, data.subjectId);
+    const teaName = text(workingDraft.teachers, data.teacherId, 'fullName') || 'Chưa gán GV';
+    const slot = (workingDraft.timeSlots || []).find(s => s.id === timeSlotId);
+    const slotText = slot ? `Thứ ${slot.dayOfWeek} · Tiết ${slot.period}` : `${dayLabel} Tiết ${period}`;
+    const desc = `Kéo thả gán môn ${subjName} (${teaName}) cho lớp ${clsName} vào ${slotText}`;
+    const newCell = (next.timetableCells || []).find(c => c.classId === targetClassId && c.timeSlotId === timeSlotId);
+
+    next = recordChange(next, {
+      actionType: 'ASSIGN',
+      description: desc,
+      classId: targetClassId,
+      timeSlotId,
+      slotLabel: slotText,
+      previousCell: existing,
+      newCell,
+      actor: currentUser?.email || 'Người xếp lịch',
+      previousSnapshot
+    });
+
     if (await syncWorkingToCloud(next)) {
       render();
-      toast(`Đã xếp ${text(workingDraft.subjects, data.subjectId)} (${text(workingDraft.teachers, data.teacherId, 'fullName')}) vào lớp ${text(workingDraft.classes, targetClassId)}.`);
+      toast(`Đã xếp ${subjName} (${teaName}) vào lớp ${clsName}.`);
     }
   } catch (err) {
     toast('Lỗi khi xếp tiết: ' + err.message);
@@ -4583,4 +5630,28 @@ testConnection().then(health=>{
   handleAuthState();
 }).catch(()=>{app.innerHTML='<div class="auth-overlay"><div class="login-card"><h1>Chưa kết nối được máy chủ thử nghiệm</h1><p>Khởi động máy chủ API rồi tải lại trang. Chưa có dữ liệu nào được chuyển.</p></div></div>';});
 
+
+
+document.addEventListener('change', event => {
+  const el = event.target;
+  if (el.id === 'grade11-editor-track') cellEditor(el.dataset.class, el.dataset.slot, el.value);
+  if (el.id === 'grade11-popover-track') {
+    grade11Track = el.value;
+    const slot = workingDraft.timeSlots.find(s => s.id === el.dataset.slot);
+    const anchor = Array.from(document.querySelectorAll('[data-cell-class]')).find(n => n.dataset.cellClass === el.dataset.class && n.dataset.cellSlot === el.dataset.slot);
+    if (anchor && slot) openTimetableCellPopover({ classId: el.dataset.class, timeSlotId: slot.id, day: slot.dayOfWeek, period: slot.period, anchorElement: anchor });
+  }
+  if (el.id === 'homeroom-class-select') {
+    selectedHomeroomClassId = el.value;
+    render();
+  }
+  if (el.id === 'homeroom-track-select') {
+    homeroomExportTrack = el.value;
+    render();
+  }
+  if (el.id === 'poster-show-teacher-toggle') {
+    homeroomShowTeacher = el.checked;
+    render();
+  }
+});
 

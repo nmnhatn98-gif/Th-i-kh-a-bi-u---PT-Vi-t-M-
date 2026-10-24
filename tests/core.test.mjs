@@ -23,7 +23,17 @@ import {
   importTeachersIntoState,
   normalizeHeaderKey,
   isRemovedFixedCell,
-  filterRemovedFixedCells
+  filterRemovedFixedCells,
+  TEACHER_COLORS_43,
+  getTeacherColor,
+  toggleCellLock,
+  unlockAllFixedCells,
+  assignSpecialActivity,
+  resetMondayFlagCeremony,
+  subjectTrack,
+  recordChange,
+  undoChange,
+  formatHistoryTime
 } from '../src/core.js';
 
 test('1. Khung gốc: 17 lớp, 45 tiết, 227 ô cố định (sau khi gỡ 62 ô TA ESL & CLB theo yêu cầu), giờ bắt đầu/kết thúc đúng nguồn', () => {
@@ -676,3 +686,333 @@ test('cloud backup without schemaVersion is accepted only with complete timetabl
  assert.throws(()=>parseBackup({...source,schemaVersion:99},SEED),/chưa được hỗ trợ/);
  assert.throws(()=>parseBackup({school:source.school},SEED),/chưa được hỗ trợ/);
 });
+
+test('40. Bảng màu giáo viên: đủ 43 màu độc lập, duy nhất và định dạng hex hợp lệ', () => {
+  assert.equal(TEACHER_COLORS_43.length, 43, 'Phải có đúng 43 màu cho 43 giáo viên');
+  const uniqueColors = new Set(TEACHER_COLORS_43);
+  assert.equal(uniqueColors.size, 43, 'Tất cả 43 màu phải hoàn toàn phân biệt, không trùng lặp');
+  for (const c of TEACHER_COLORS_43) {
+    assert.match(c, /^#[0-9a-fA-F]{6}$/, `Màu ${c} phải là mã HEX 6 ký tự hợp lệ`);
+  }
+});
+
+test('41. getTeacherColor gán cùng 1 màu cho 1 giáo viên bất kể môn học hoặc lớp nào', () => {
+  const dummyState = {
+    teachers: [
+      { id: 'gv_01', fullName: 'Thầy Trịnh Vũ Vinh' },
+      { id: 'gv_02', fullName: 'Cô Nguyễn Thị Mai' },
+      { id: 'gv_03', fullName: 'Thầy Lê Văn Hùng' }
+    ]
+  };
+
+  const colorGv1 = getTeacherColor(dummyState, 'gv_01');
+  const colorGv2 = getTeacherColor(dummyState, 'gv_02');
+  const colorGv3 = getTeacherColor(dummyState, 'gv_03');
+
+  assert.equal(colorGv1, TEACHER_COLORS_43[0]);
+  assert.equal(colorGv2, TEACHER_COLORS_43[1]);
+  assert.equal(colorGv3, TEACHER_COLORS_43[2]);
+
+  // Cùng 1 giáo viên ở mọi tiết/môn/lớp đều trả về chính xác cùng 1 màu
+  assert.equal(getTeacherColor(dummyState, 'gv_01'), colorGv1);
+  assert.notEqual(colorGv1, colorGv2, '2 giáo viên khác nhau phải có 2 màu khác nhau');
+});
+
+test('42. toggleCellLock và unlockAllFixedCells mở khóa các môn cố định thành công', () => {
+  let state = clone(SEED);
+  const lockedCell = state.timetableCells.find(c => c.locked);
+  assert.ok(lockedCell, 'Thời khóa biểu gốc phải có ô đang khóa');
+
+  // Mở khóa 1 ô cụ thể
+  const toggledState = toggleCellLock(state, lockedCell.classId, lockedCell.timeSlotId);
+  const cellAfter = toggledState.timetableCells.find(c => c.classId === lockedCell.classId && c.timeSlotId === lockedCell.timeSlotId);
+  assert.equal(cellAfter.locked, false, 'Ô được toggle phải mở khóa (locked = false)');
+
+  // Khóa lại ô đó
+  const relockedState = toggleCellLock(toggledState, lockedCell.classId, lockedCell.timeSlotId);
+  const cellRelocked = relockedState.timetableCells.find(c => c.classId === lockedCell.classId && c.timeSlotId === lockedCell.timeSlotId);
+  assert.equal(cellRelocked.locked, true, 'Ô được toggle lần 2 phải khóa lại (locked = true)');
+
+  // Mở khóa toàn bộ các môn cố định
+  const allUnlocked = unlockAllFixedCells(state);
+  const remainingLocked = allUnlocked.timetableCells.filter(c => c.locked);
+  assert.equal(remainingLocked.length, 0, 'Sau khi unlockAllFixedCells, không còn ô nào bị khóa');
+});
+
+test('43. toggleCellLock tự động đồng bộ khóa/mở khóa cho lớp ghép Thể dục/GDQP', () => {
+  let state = clone(SEED);
+  const c10tn = state.classes.find(c => c.name === '10TN' || c.code === '10TN');
+  const c10xh = state.classes.find(c => c.name === '10XH' || c.code === '10XH');
+  const peSubject = state.subjects.find(s => s.code === 'TD' || s.name === 'Thể dục');
+
+  if (c10tn && c10xh && peSubject) {
+    const slot = 'slot_mon_t1';
+    state.timetableCells = [
+      ...(state.timetableCells || []),
+      { classId: c10tn.id, timeSlotId: slot, subjectId: peSubject.id, teacherId: 'tea_demo', locked: true },
+      { classId: c10xh.id, timeSlotId: slot, subjectId: peSubject.id, teacherId: 'tea_demo', locked: true }
+    ];
+
+    // Mở khóa từ lớp 10TN -> lớp ghép 10XH cũng tự động được mở khóa đồng thời
+    const unlockedState = toggleCellLock(state, c10tn.id, slot);
+    const cell10tn = unlockedState.timetableCells.find(c => c.classId === c10tn.id && c.timeSlotId === slot);
+    const cell10xh = unlockedState.timetableCells.find(c => c.classId === c10xh.id && c.timeSlotId === slot);
+    assert.equal(cell10tn.locked, false, '10TN phải được mở khóa');
+    assert.equal(cell10xh.locked, false, '10XH ghép cặp phải được mở khóa cùng');
+  }
+});
+
+test('44. assignSpecialActivity cho phép chọn lại tiết Chào cờ hoặc Sinh hoạt lớp nhanh chóng', () => {
+  let state = clone(SEED);
+  const cls = state.classes[0];
+  const slot = state.timeSlots[0];
+
+  // Gán tiết Chào cờ
+  const stateWithFlag = assignSpecialActivity(state, {
+    classId: cls.id,
+    timeSlotId: slot.id,
+    type: 'chao_co',
+    locked: true
+  });
+  const flagCell = stateWithFlag.timetableCells.find(c => c.classId === cls.id && c.timeSlotId === slot.id);
+  assert.ok(flagCell, 'Phải có ô sau khi gán Chào cờ');
+  const chaoCoSubj = stateWithFlag.subjects.find(s => s.id === flagCell.subjectId);
+  assert.equal(chaoCoSubj.name, 'Chào cờ');
+  assert.equal(flagCell.locked, true, 'Tiết Chào cờ gán với locked=true');
+  assert.match(flagCell.note, /Chào cờ/);
+
+  // Đổi sang tiết Sinh hoạt lớp
+  cls.homeroomTeacherId = 'gv_demo_cn';
+  stateWithFlag.teachers.push({ id: 'gv_demo_cn', fullName: 'Cô Chủ Nhiệm', code: 'CN' });
+  const stateWithSHL = assignSpecialActivity(stateWithFlag, {
+    classId: cls.id,
+    timeSlotId: slot.id,
+    type: 'sinh_hoat_lop',
+    locked: false
+  });
+  const shlCell = stateWithSHL.timetableCells.find(c => c.classId === cls.id && c.timeSlotId === slot.id);
+  assert.ok(shlCell, 'Phải có ô sau khi gán Sinh hoạt lớp');
+  assert.equal(shlCell.teacherId, 'gv_demo_cn', 'Phải gán đúng GVCN');
+  assert.equal(shlCell.locked, false);
+});
+
+test('45. resetMondayFlagCeremony đặt lại tiết Chào cờ sáng Thứ 2 Tiết 1 cho toàn bộ các lớp', () => {
+  let state = clone(SEED);
+  // Xóa toàn bộ ô ở tiết 1 thứ 2 của tất cả các lớp
+  const slotMonP1 = state.timeSlots.find(s => s.dayOfWeek === 2 && s.period === 1);
+  state.timetableCells = (state.timetableCells || []).filter(c => c.timeSlotId !== slotMonP1.id);
+  assert.equal(state.timetableCells.filter(c => c.timeSlotId === slotMonP1.id).length, 0);
+
+  // Gọi đặt lại Chào cờ toàn trường
+  const resetState = resetMondayFlagCeremony(state);
+  const flagCells = resetState.timetableCells.filter(c => c.timeSlotId === slotMonP1.id);
+  assert.equal(flagCells.length, resetState.classes.length, 'Mỗi lớp đều phải có tiết Chào cờ vào sáng Thứ 2 Tiết 1');
+  for (const c of flagCells) {
+    assert.equal(c.locked, true, 'Tiết Chào cờ phải được khóa cố định');
+    assert.match(c.note, /Chào cờ/);
+  }
+});
+
+test('46. subjectTrack phân loại Chào cờ, SHL là COMMON, tương thích với cả tổ hợp khối 11', () => {
+  const chaoCo = { id: 's1', name: 'Chào cờ', code: 'CHAO_CO' };
+  const shl = { id: 's2', name: 'Sinh hoạt lớp', code: 'SHL' };
+  const hdtn = { id: 's3', name: 'HĐTN - HN', code: 'HDTN_HN' };
+
+  assert.equal(subjectTrack(chaoCo), 'COMMON');
+  assert.equal(subjectTrack(shl), 'COMMON');
+  assert.equal(subjectTrack(hdtn), 'COMMON');
+});
+
+test('47. assignSpecialActivity gán thành công môn TA ESL và CLB vào bất kỳ ô lịch nào', () => {
+  let state = clone(SEED);
+  const cls = state.classes.find(c => c.name === '12XH') || state.classes[0];
+  const slot = state.timeSlots.find(s => s.session === 'AFTERNOON') || state.timeSlots[0];
+
+  // Gán tiết TA ESL
+  const stateWithEsl = assignSpecialActivity(state, {
+    classId: cls.id,
+    timeSlotId: slot.id,
+    type: 'ta_esl',
+    locked: false
+  });
+  const eslCell = stateWithEsl.timetableCells.find(c => c.classId === cls.id && c.timeSlotId === slot.id);
+  assert.ok(eslCell, 'Phải có ô sau khi gán TA ESL');
+  const eslSubj = stateWithEsl.subjects.find(s => s.id === eslCell.subjectId);
+  assert.ok(eslSubj.name.includes('ESL'));
+  assert.equal(eslCell.locked, false);
+  assert.match(eslCell.note, /ESL/);
+
+  // Gán tiết CLB
+  const stateWithClb = assignSpecialActivity(stateWithEsl, {
+    classId: cls.id,
+    timeSlotId: slot.id,
+    type: 'clb',
+    locked: true
+  });
+  const clbCell = stateWithClb.timetableCells.find(c => c.classId === cls.id && c.timeSlotId === slot.id);
+  assert.ok(clbCell, 'Phải có ô sau khi gán CLB');
+  const clbSubj = stateWithClb.subjects.find(s => s.id === clbCell.subjectId);
+  assert.ok(clbSubj.name.includes('CLB'));
+  assert.equal(clbCell.locked, true);
+  assert.match(clbCell.note, /CLB|Câu lạc bộ/);
+});
+
+test('48. Tiết TA ESL và CLB được người dùng gán lại có cờ restored/userAssigned không bị filterRemovedFixedCells lọc mất', () => {
+  const userCell = {
+    classId: 'cls_12xh',
+    timeSlotId: 'ts_d2_a_1',
+    subjectId: 'subj_ta_esl',
+    restored: true,
+    userAssigned: true
+  };
+  assert.equal(isRemovedFixedCell(userCell), false, 'Ô được người dùng chọn lại không bị coi là ô xoá');
+
+  const filtered = filterRemovedFixedCells([userCell]);
+  assert.equal(filtered.length, 1, 'Ô được người dùng gán lại phải được bảo toàn đầy đủ');
+});
+
+test('49. formatHistoryTime định dạng chuẩn thời gian ghi nhật ký HH:mm:ss - DD/MM', () => {
+  const sampleDate = new Date(2026, 9, 24, 14, 5, 9); // 24/10/2026 14:05:09
+  const formatted = formatHistoryTime(sampleDate);
+  assert.equal(formatted, '14:05:09 - 24/10');
+});
+
+test('50. recordChange lưu lại đầy đủ snapshot lịch trước khi thao tác, mô tả, actor và giới hạn 50 mục', () => {
+  let state = clone(SEED);
+  state = normalizeState(state);
+  assert.deepEqual(state.changeHistory, []);
+
+  const initialCellCount = state.timetableCells.length;
+  const previousSnapshot = clone(state.timetableCells);
+
+  // Giả lập gán 1 tiết mới
+  const cls = state.classes[0];
+  const slot = state.timeSlots.find(s => s.session === 'AFTERNOON');
+  const subj = state.subjects[0];
+  const teacher = state.teachers[0] || { id: 'gv_test', fullName: 'Thầy Test' };
+
+  state.timetableCells.push({
+    classId: cls.id,
+    timeSlotId: slot.id,
+    subjectId: subj.id,
+    teacherId: teacher.id,
+    locked: false
+  });
+
+  state = recordChange(state, {
+    actionType: 'ASSIGN',
+    description: `Gán môn ${subj.name} cho lớp ${cls.name}`,
+    classId: cls.id,
+    timeSlotId: slot.id,
+    actor: 'admin@school.edu.vn',
+    previousSnapshot
+  });
+
+  assert.equal(state.changeHistory.length, 1);
+  const rec = state.changeHistory[0];
+  assert.equal(rec.actionType, 'ASSIGN');
+  assert.equal(rec.actor, 'admin@school.edu.vn');
+  assert.equal(rec.canUndo, true);
+  assert.equal(rec.undone, false);
+  assert.equal(rec.previousScheduleSnapshot.length, initialCellCount);
+  assert.ok(rec.timeDisplay.includes('-'));
+
+  // Test giới hạn tối đa 50 bản ghi
+  for (let i = 0; i < 60; i++) {
+    state = recordChange(state, {
+      actionType: 'ASSIGN',
+      description: `Thay đổi thứ ${i}`,
+      actor: 'tester'
+    });
+  }
+  assert.equal(state.changeHistory.length, 50, 'Nhật ký chỉ giữ tối đa 50 thay đổi gần nhất');
+});
+
+test('51. undoChange khôi phục chính xác timetableCells và draftSchedule về trạng thái trước thao tác', () => {
+  let state = clone(SEED);
+  state = normalizeState(state);
+  const originalCount = state.timetableCells.length;
+  const originalSnapshot = clone(state.timetableCells);
+
+  // Thao tác 1: Xóa 1 tiết
+  const cellToDelete = state.timetableCells[5];
+  state.timetableCells = state.timetableCells.filter(c => c !== cellToDelete);
+  assert.equal(state.timetableCells.length, originalCount - 1);
+
+  state = recordChange(state, {
+    actionType: 'CLEAR',
+    description: `Xóa tiết học test`,
+    classId: cellToDelete.classId,
+    timeSlotId: cellToDelete.timeSlotId,
+    previousSnapshot: originalSnapshot
+  });
+
+  assert.equal(state.changeHistory.length, 1);
+  assert.equal(state.changeHistory[0].canUndo, true);
+
+  // Thực hiện hoàn tác (Undo)
+  const undoneState = undoChange(state);
+  assert.equal(undoneState.timetableCells.length, originalCount, 'Số lượng ô sau khi hoàn tác phải về đúng trạng thái ban đầu');
+  assert.equal(undoneState.draftSchedule.length, originalCount, 'draftSchedule cũng phải được đồng bộ');
+  assert.equal(undoneState.lastUndoneDescription, 'Xóa tiết học test');
+
+  // Bản ghi thao tác cũ được đánh dấu undone
+  const oldRec = undoneState.changeHistory.find(h => h.description === 'Xóa tiết học test');
+  assert.equal(oldRec.undone, true);
+  assert.equal(oldRec.canUndo, false);
+
+  // Có bản ghi UNDO mới đứng đầu danh sách
+  assert.equal(undoneState.changeHistory[0].actionType, 'UNDO');
+  assert.match(undoneState.changeHistory[0].description, /Hoàn tác: Xóa tiết học test/);
+});
+
+test('52. undoChange với ID chỉ định cho phép hoàn tác đúng thao tác được chọn trong danh sách', () => {
+  let state = clone(SEED);
+  state = normalizeState(state);
+
+  const snapshotA = clone(state.timetableCells);
+  // Thay đổi A
+  state = recordChange(state, {
+    actionType: 'ASSIGN',
+    description: 'Thao tác A',
+    previousSnapshot: snapshotA
+  });
+  const idA = state.changeHistory[0].id;
+
+  const snapshotB = clone(state.timetableCells);
+  // Thay đổi B
+  state = recordChange(state, {
+    actionType: 'ASSIGN',
+    description: 'Thao tác B',
+    previousSnapshot: snapshotB
+  });
+  const idB = state.changeHistory[0].id;
+
+  // Hoàn tác riêng thao tác A bằng ID
+  const stateAfterUndoA = undoChange(state, idA);
+  const recA = stateAfterUndoA.changeHistory.find(h => h.id === idA);
+  const recB = stateAfterUndoA.changeHistory.find(h => h.id === idB);
+
+  assert.equal(recA.undone, true);
+  assert.equal(recA.canUndo, false);
+  assert.equal(recB.undone, false);
+  assert.equal(recB.canUndo, true);
+  assert.equal(stateAfterUndoA.lastUndoneDescription, 'Thao tác A');
+});
+
+test('53. undoChange báo lỗi phù hợp khi nhật ký trống hoặc không còn thao tác nào để hoàn tác', () => {
+  let state = clone(SEED);
+  state = normalizeState(state);
+  state.changeHistory = [];
+
+  assert.throws(() => undoChange(state), /Chưa có lịch sử thay đổi để hoàn tác/);
+
+  // Có bản ghi nhưng đã hoàn tác rồi
+  state = recordChange(state, { actionType: 'LOCK', description: 'Đã khóa', previousSnapshot: [] });
+  state = undoChange(state);
+  assert.throws(() => undoChange(state), /Không còn thao tác nào khả dụng để hoàn tác/);
+});
+
+
+
+

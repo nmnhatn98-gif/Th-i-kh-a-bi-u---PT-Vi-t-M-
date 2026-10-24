@@ -3,18 +3,47 @@ export const uid = () => globalThis.crypto.randomUUID();
 export const clone = value => structuredClone(value);
 export const keyOf = (classId, timeSlotId) => `${classId}::${timeSlotId}`;
 
+
+const compactName = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/gi,'d').toLowerCase().replace(/[^a-z0-9]/g,'');
+export function subjectTrack(subject) {
+ const n=compactName(subject?.name),code=compactName(subject?.code);
+ if(['cddiali','cddialy','gdktpl','cdnguvan','cdtinhoc','diali','dialy'].includes(n)||['gdktpl','gdktvapl','diali','dialy'].includes(code))return 'XH';
+ if(['cdhoa','cdhoahoc','hoa','hoahoc','sinh','sinhhoc','cdtoan','cdvatli','cdvatly'].includes(n))return 'TN';
+ if(['toan','nguvan','van','ngoaingu','tienganh','lichsu','vatli','vatly','vatlydaitra','vatlidaitra','tinhoc','hdtnhn','hoatdongtrainghiemhuongnghiep','gddpdiali','gddpdialy','theduc','chaoco','shl','sinhhoatlop','taesl','clb'].includes(n)||['chaoco','hdtn_hn','ta_esl','clb'].includes(code))return 'COMMON';
+ return null;
+}
+export function subjectsForClass(state,classId,track='') {
+ const cls=state.classes.find(c=>c.id===classId);
+ return state.subjects.filter(s=>cls?.grade!==11 || (subjectTrack(s) && (!track || subjectTrack(s)===track)));
+}
+export function jointPartner(state,classId,subjectId) {
+ const subject=state.subjects.find(s=>s.id===subjectId);
+ if(!['theduc','gdqpan','gdqpanninh','giaoducquocphonganninh'].includes(compactName(subject?.name)) && !['theduc','gdqpan'].includes(compactName(subject?.code)))return null;
+ const cls=state.classes.find(c=>c.id===classId);if(![10,12].includes(cls?.grade))return null;
+ const identity=c=>[c.code,c.name].map(compactName).find(n=>new RegExp('^(lop)?'+c.grade+'(xh|tn)$').test(n))||'';
+ const n=identity(cls);if(!n)return null;const target=n.endsWith('xh')?'tn':'xh';
+ return state.classes.find(c=>c.id!==classId&&c.grade===cls.grade&&identity(c).endsWith(target))||null;
+}
+export function cellLessons(state,cell) {
+ if(!cell)return [];
+ return [{...cell,parallelLessons:undefined,track:subjectTrack(state.subjects.find(s=>s.id===cell.subjectId))||'COMMON'},...(cell.parallelLessons||[]).map(l=>({...cell,...l,id:cell.id,parallelLessons:undefined}))];
+}
+export function allLessons(state,cells=state.timetableCells||[]) {return cells.flatMap(c=>cellLessons(state,c));}
+export function validJointPair(state,a,b){return a.subjectId===b.subjectId && a.teacherId===b.teacherId && a.timeSlotId===b.timeSlotId && jointPartner(state,a.classId,a.subjectId)?.id===b.classId;}
+export function lessonBusy(state,{classId,timeSlotId,subjectId,teacherId},cells=state.timetableCells) {
+ const candidate={classId,timeSlotId,subjectId,teacherId};const track=subjectTrack(state.subjects.find(s=>s.id===subjectId));
+ const found=allLessons(state,cells).find(c=>c.teacherId&&c.teacherId===teacherId&&c.timeSlotId===timeSlotId&&
+   !(c.classId===classId&&(state.classes.find(x=>x.id===classId)?.grade!==11||track==='COMMON'||c.track===track||c.track==='COMMON'))&&!validJointPair(state,candidate,c));
+ return {isBusy:!!found,conflictingClass:found?state.classes.find(c=>c.id===found.classId):null,conflictingCell:found};
+}
+
 export function effectiveTeacher(cell, state) {
   return cell.teacherId || '';
 }
 
-export function findConflicts(state, cells = state.timetableCells) {
-  const groups = new Map();
-  for (const cell of cells) {
-    if (!cell.teacherId) continue;
-    const key = keyOf(cell.teacherId, cell.timeSlotId);
-    groups.set(key, [...(groups.get(key) || []), cell]);
-  }
-  return [...groups.values()].filter(group => new Set(group.map(c => c.classId)).size > 1);
+export function findConflicts(state,cells=state.timetableCells) {
+ const groups=new Map();for(const cell of allLessons(state,cells)){if(!cell.teacherId)continue;const k=keyOf(cell.teacherId,cell.timeSlotId);groups.set(k,[...(groups.get(k)||[]),cell]);}
+ return [...groups.values()].filter(g=>g.length>1 && !(g.length===2&&validJointPair(state,g[0],g[1])));
 }
 
 export function assignTeacherToClassSubject(state, { classId, subjectId, teacherId }) {
@@ -48,18 +77,12 @@ export function assignTeacherToClassSubject(state, { classId, subjectId, teacher
   });
 
   // 3. Keep draftSchedule & timetableCells synchronized for this class & subject
-  const nextSchedule = (state.draftSchedule || []).map(cell => {
-    if (cell.classId === classId && cell.subjectId === subjectId) {
-      return { ...cell, teacherId: teacherId || '' };
-    }
-    return cell;
-  });
-  const nextCells = (state.timetableCells || []).map(cell => {
-    if (cell.classId === classId && cell.subjectId === subjectId) {
-      return { ...cell, teacherId: teacherId || '' };
-    }
-    return cell;
-  });
+  const partner=jointPartner(state,classId,subjectId);
+  const update=cell=>{
+   if(![classId,partner?.id].includes(cell.classId))return cell;
+   return {...cell,...(cell.subjectId===subjectId?{teacherId:teacherId||''}:{}),...(cell.parallelLessons?{parallelLessons:cell.parallelLessons.map(l=>l.subjectId===subjectId?{...l,teacherId:teacherId||''}:l)}:{})};
+  };
+  const nextSchedule=(state.draftSchedule||[]).map(update),nextCells=(state.timetableCells||[]).map(update);
 
   return {
     ...state,
@@ -89,52 +112,46 @@ export function getAssignedTeacher(state, classId, subjectId) {
   if (byAssignment) return byAssignment;
 
   // Fallback to timetable cells
-  const cell = (state.timetableCells || state.draftSchedule || []).find(c => c.classId === classId && c.subjectId === subjectId && c.teacherId);
+  const cell = allLessons(state,state.timetableCells || state.draftSchedule || []).find(c => c.classId === classId && c.subjectId === subjectId && c.teacherId);
   if (cell?.teacherId) {
     return (state.teachers || []).find(t => t.id === cell.teacherId) || null;
   }
   return null;
 }
 
-export function putCell(state, cell, { allowConflict = false } = {}) {
-  if (!state.classes.some(c => c.id === cell.classId) || !state.timeSlots.some(s => s.id === cell.timeSlotId) || !state.subjects.some(s => s.id === cell.subjectId)) {
-    throw Error('Lớp, môn hoặc tiết học không hợp lệ.');
-  }
-  if (cell.teacherId && !state.teachers.some(t => t.id === cell.teacherId)) {
-    throw Error('Giáo viên không tồn tại.');
-  }
-  const previous = state.timetableCells.find(c => keyOf(c.classId, c.timeSlotId) === keyOf(cell.classId, cell.timeSlotId));
-  if (previous?.locked) {
-    throw Error('Ô này đang khóa. Hãy mở khóa trước khi sửa.');
-  }
-  const next = state.timetableCells.filter(c => keyOf(c.classId, c.timeSlotId) !== keyOf(cell.classId, cell.timeSlotId));
-  if (!allowConflict && cell.teacherId && next.some(c => c.teacherId === cell.teacherId && c.timeSlotId === cell.timeSlotId)) {
-    throw Error('Giáo viên đã có lịch tại lớp khác trong tiết này.');
-  }
-
-  // Two-way sync: update teacher assignments if teacher assigned
-  let nextTeachers = state.teachers;
-  if (cell.teacherId && cell.subjectId && cell.classId && Array.isArray(state.teachers)) {
-    nextTeachers = state.teachers.map(t => {
-      let assignments = Array.isArray(t.assignments) ? [...t.assignments] : [];
-      if (t.id === cell.teacherId) {
-        if (!assignments.some(a => a.classId === cell.classId && a.subjectId === cell.subjectId)) {
-          assignments.push({ classId: cell.classId, subjectId: cell.subjectId });
-        }
-      }
-      return { ...t, assignments };
-    });
-  }
-
-  return { ...state, teachers: nextTeachers, timetableCells: [...next, { id: previous?.id || uid(), ...cell }] };
+export function putCell(state,cell,{allowConflict=false}={}) {
+ if(!state.classes.some(c=>c.id===cell.classId)||!state.timeSlots.some(s=>s.id===cell.timeSlotId)||!cell.subjectId)throw Error('Lớp, môn hoặc tiết học không hợp lệ.');
+ let subjects = state.subjects || [];
+ if(!subjects.some(s=>s.id===cell.subjectId)) {
+   subjects = [...subjects, { id: cell.subjectId, code: cell.subjectId.toUpperCase(), name: cell.subjectId }];
+ }
+ if(cell.teacherId&&!state.teachers.some(t=>t.id===cell.teacherId))throw Error('Giáo viên không tồn tại.');
+ const previous=state.timetableCells.find(c=>c.classId===cell.classId&&c.timeSlotId===cell.timeSlotId);
+ if(previous?.locked)throw Error('Ô này đang khóa. Hãy mở khóa trước khi sửa.');
+ const cls=state.classes.find(c=>c.id===cell.classId),track=subjectTrack(subjects.find(s=>s.id===cell.subjectId));
+ if(cls.grade===11&&!track)throw Error('Môn này không thuộc danh mục tổ hợp lớp 11.');
+ let saved={...cell,id:previous?.id||uid()};delete saved.parallelLessons;
+ if(cls.grade===11&&track!=='COMMON'){
+   const others=cellLessons(state,previous).filter(l=>l.track!==track&&l.track!=='COMMON');
+   saved.track=track;if(others.length)saved.parallelLessons=others.map(l=>({track:l.track,subjectId:l.subjectId,teacherId:l.teacherId,note:l.note||''}));
+ }
+ let cells=state.timetableCells.filter(c=>c!==previous);const partner=jointPartner(state,cell.classId,cell.subjectId);
+ if(partner){const other=cells.find(c=>c.classId===partner.id&&c.timeSlotId===cell.timeSlotId);
+   if(other?.locked)throw Error('Ô lớp ghép đang khóa. Hãy mở khóa trước khi sửa.');
+   if(other&&other.subjectId!==cell.subjectId)throw Error('Ô lớp ghép đã có môn khác. Hãy xóa hoặc chuyển tiết đó trước.');
+   cells=cells.filter(c=>c!==other);cells.push({...saved,id:other?.id||uid(),classId:partner.id});
+ }else if(previous){const oldPartner=jointPartner(state,previous.classId,previous.subjectId);if(oldPartner){const old=cells.find(c=>c.classId===oldPartner.id&&c.timeSlotId===cell.timeSlotId&&validJointPair(state,previous,c));if(old?.locked)throw Error('Ô lớp ghép đang khóa.');cells=cells.filter(c=>c!==old);}}
+ cells.push(saved);
+ if(!allowConflict&&findConflicts(state,cells).some(g=>g.some(c=>c.timeSlotId===cell.timeSlotId&&[cell.classId,partner?.id].includes(c.classId))))throw Error('Giáo viên đã có lịch tại lớp khác trong tiết này.');
+ const teachers=state.teachers.map(t=>{const assignments=[...(t.assignments||[])];for(const c of allLessons(state,cells.filter(x=>x.timeSlotId===cell.timeSlotId&&[cell.classId,partner?.id].includes(x.classId))))if(c.teacherId===t.id&&!assignments.some(a=>a.classId===c.classId&&a.subjectId===c.subjectId))assignments.push({classId:c.classId,subjectId:c.subjectId});return {...t,assignments};});
+ return {...state,subjects,teachers,timetableCells:cells,draftSchedule:clone(cells)};
 }
-
-export function deleteCell(state, classId, timeSlotId) {
-  const existing = state.timetableCells.find(c => c.classId === classId && c.timeSlotId === timeSlotId);
-  if (existing?.locked) {
-    throw Error('Ô này đang khóa. Hãy mở khóa trước khi xóa.');
-  }
-  return { ...state, timetableCells: state.timetableCells.filter(c => c !== existing) };
+export function deleteCell(state,classId,timeSlotId,track='') {
+ const existing=state.timetableCells.find(c=>c.classId===classId&&c.timeSlotId===timeSlotId);if(existing?.locked)throw Error('Ô này đang khóa. Hãy mở khóa trước khi xóa.');
+ let cells=state.timetableCells.filter(c=>c!==existing);
+ if(existing&&track&&state.classes.find(c=>c.id===classId)?.grade===11){const remaining=cellLessons(state,existing).filter(l=>l.track!==track);if(remaining.length){const keep={...remaining[0]};delete keep.parallelLessons;cells.push(keep);}}
+ const partner=existing&&jointPartner(state,classId,existing.subjectId);if(partner){const other=cells.find(c=>c.classId===partner.id&&c.timeSlotId===timeSlotId&&validJointPair(state,existing,c));if(other?.locked)throw Error('Ô lớp ghép đang khóa. Hãy mở khóa trước khi xóa.');cells=cells.filter(c=>c!==other);}
+ return {...state,timetableCells:cells,draftSchedule:clone(cells)};
 }
 
 export function deleteEntity(state, kind, id) {
@@ -183,6 +200,7 @@ const REMOVED_CLB_CLASSES_T5 = new Set(['cls_6a1', 'cls_6a2', 'cls_6a3', 'cls_7a
 
 export function isRemovedFixedCell(cell) {
   if (!cell) return false;
+  if (cell.restored || cell.userAssigned) return false;
   const { classId, timeSlotId, subjectId } = cell;
 
   // 1. Xoá tiết cố định TA ESL ở 2 lớp 12XH và 12TN vào các tiết chiều thứ 2, thứ tư, thứ sáu
@@ -289,97 +307,14 @@ export function restoreDraftFromPublished(state) {
   return draft;
 }
 
-export function assignLessonToScheduleCell(state, { classId, timeSlotId, day, period, subjectId, teacherId, note = '', allowConflict = false }) {
-  const slot = (state.timeSlots || []).find(s => s.id === timeSlotId);
-  const actualSlotId = timeSlotId || slot?.id || '';
-  const dayName = day || slot?.dayName || `Thứ ${slot?.dayOfWeek || ''}`;
-  const periodNum = period !== undefined ? Number(period) : (slot?.period || 1);
-
-  if (!allowConflict && teacherId) {
-    const busy = isTeacherBusy(teacherId, dayName, periodNum, classId, state.draftSchedule, actualSlotId);
-    if (busy && busy.isBusy) {
-      const conflictCls = busy.conflictingClass || (state.classes || []).find(c => c.id === busy.classId);
-      throw Error(`Giáo viên đã có lịch tại ${conflictCls?.name || 'lớp khác'} trong tiết này.`);
-    }
-  }
-
-  // Find existing cell strictly for this class in this exact slot
-  const existingIdx = (state.draftSchedule || []).findIndex(c => {
-    if (c.classId !== classId) return false;
-    if (actualSlotId && c.timeSlotId) return c.timeSlotId === actualSlotId;
-    return c.day === dayName && Number(c.period) === periodNum;
-  });
-
-  const prevCell = existingIdx !== -1 ? state.draftSchedule[existingIdx] : null;
-  if (prevCell?.locked) {
-    throw Error('Ô này đang khóa. Hãy mở khóa trước khi sửa.');
-  }
-
-  const newCell = {
-    id: prevCell?.id || uid(),
-    day: dayName,
-    period: periodNum,
-    timeSlotId: actualSlotId,
-    classId,
-    subjectId,
-    teacherId: teacherId || '',
-    locked: false,
-    note: note || prevCell?.note || ''
-  };
-
-  const nextSchedule = [...(state.draftSchedule || [])];
-  if (existingIdx !== -1) {
-    nextSchedule[existingIdx] = newCell;
-  } else {
-    nextSchedule.push(newCell);
-  }
-
-  const nextCells = (state.timetableCells || []).filter(c => {
-    if (c.classId !== classId) return true;
-    if (actualSlotId && c.timeSlotId) return c.timeSlotId !== actualSlotId;
-    return true;
-  });
-  nextCells.push(newCell);
-
-  return {
-    ...state,
-    draftSchedule: nextSchedule,
-    timetableCells: nextCells
-  };
+export function assignLessonToScheduleCell(state,{classId,timeSlotId,day,period,subjectId,teacherId,note='',allowConflict=false}) {
+ const slot=state.timeSlots.find(s=>s.id===timeSlotId)||state.timeSlots.find(s=>('Thứ '+s.dayOfWeek)===day&&s.period===Number(period));
+ if(!slot)throw Error('Khung tiết không hợp lệ.');
+ return putCell(state,{classId,timeSlotId:slot.id,day:day||('Thứ '+slot.dayOfWeek),period:period||slot.period,subjectId,teacherId:teacherId||'',note,locked:false},{allowConflict});
 }
-
-export function removeLessonFromScheduleCell(state, { classId, timeSlotId, day, period }) {
-  const slot = (state.timeSlots || []).find(s => s.id === timeSlotId);
-  const actualSlotId = timeSlotId || slot?.id || '';
-  const dayName = day || slot?.dayName || `Thứ ${slot?.dayOfWeek || ''}`;
-  const periodNum = period !== undefined ? Number(period) : (slot?.period || 1);
-
-  const prevCell = (state.draftSchedule || []).find(c => {
-    if (c.classId !== classId) return false;
-    if (actualSlotId && c.timeSlotId) return c.timeSlotId === actualSlotId;
-    return c.day === dayName && Number(c.period) === periodNum;
-  });
-  if (prevCell?.locked) {
-    throw Error('Ô này đang khóa. Hãy mở khóa trước khi sửa.');
-  }
-
-  const nextSchedule = (state.draftSchedule || []).filter(c => {
-    if (c.classId !== classId) return true;
-    if (actualSlotId && c.timeSlotId) return c.timeSlotId !== actualSlotId;
-    return !(c.day === dayName && Number(c.period) === periodNum);
-  });
-
-  const nextCells = (state.timetableCells || []).filter(c => {
-    if (c.classId !== classId) return true;
-    if (actualSlotId && c.timeSlotId) return c.timeSlotId !== actualSlotId;
-    return true;
-  });
-
-  return {
-    ...state,
-    draftSchedule: nextSchedule,
-    timetableCells: nextCells
-  };
+export function removeLessonFromScheduleCell(state,{classId,timeSlotId,day,period,track=''}) {
+ const slot=state.timeSlots.find(s=>s.id===timeSlotId)||state.timeSlots.find(s=>('Thứ '+s.dayOfWeek)===day&&s.period===Number(period));
+ return deleteCell(state,classId,slot?.id||timeSlotId,track);
 }
 
 export function normalizeState(state) {
@@ -461,6 +396,7 @@ export function normalizeState(state) {
     state.draftSchedule = state.timetableCells.map(c => {
       const slot = (state.timeSlots || []).find(s => s.id === c.timeSlotId);
       return {
+        ...c,
         id: c.id || uid(),
         day: c.day || slot?.dayName || `Thứ ${slot?.dayOfWeek || ''}`,
         period: c.period || slot?.period || 1,
@@ -495,6 +431,10 @@ export function normalizeState(state) {
     if (!state.lastPublishedAt && state.published.publishedAt) {
       state.lastPublishedAt = formatPublicationTime(state.published.publishedAt);
     }
+  }
+
+  if (!Array.isArray(state.changeHistory)) {
+    state.changeHistory = [];
   }
 
   return state;
@@ -550,6 +490,12 @@ export function validateState(state) {
   }
   if (state.timeSlots.length !== 45) {
     throw Error('Ma trận cần đủ 45 tiết: thứ Hai–thứ Sáu, 5 tiết sáng và 4 tiết chiều.');
+  }
+  for(const parent of state.timetableCells){
+   if(parent.parallelLessons!==undefined){
+    if(state.classes.find(c=>c.id===parent.classId)?.grade!==11||!Array.isArray(parent.parallelLessons)||parent.parallelLessons.length!==1)throw Error('Cấu trúc tổ hợp song song không hợp lệ.');
+    const lessons=cellLessons(state,parent);if(new Set(lessons.map(l=>l.track)).size!==2||!lessons.every(l=>['TN','XH'].includes(l.track)&&subjectTrack(state.subjects.find(s=>s.id===l.subjectId))===l.track&&(!l.teacherId||state.teachers.some(t=>t.id===l.teacherId))))throw Error('Môn hoặc giáo viên tổ hợp không hợp lệ.');
+   }
   }
   const occupied = new Set();
   for (const c of state.timetableCells) {
@@ -649,7 +595,7 @@ export function exportCsv(state) {
       `${slot.startTime}-${slot.endTime}`,
       ...state.classes.map(cls => {
         const c = state.timetableCells.find(c => c.classId === cls.id && c.timeSlotId === slot.id);
-        return c ? `${state.subjects.find(s => s.id === c.subjectId)?.name || ''}${c.teacherId ? ' — ' + (state.teachers.find(t => t.id === c.teacherId)?.fullName || '') : ''}` : '';
+        return c ? cellLessons(state,c).map(l=>[state.subjects.find(s=>s.id===l.subjectId)?.name||'',state.teachers.find(t=>t.id===l.teacherId)?.fullName||''].filter(Boolean).join(' — ')).join(' / ') : '';
       })
     ]);
   }
@@ -1090,5 +1036,418 @@ export function isQuotaExhaustedError(err) {
     msg.includes('vượt hạn mức')
   );
 }
+
+export function computeExportFileName(className, weekRaw) {
+  const cleanClassName = String(className || '').replace(/^Lớp\s*/i, '').trim().replace(/[^a-zA-Z0-9_\u00C0-\u024F\u1EA0-\u1EF9]/g, '') || 'Lop';
+  const weekDigits = String(weekRaw || '').match(/\d+/);
+  const cleanWeek = weekDigits ? weekDigits[0] : String(weekRaw || '').replace(/[^a-zA-Z0-9]/g, '') || '1';
+  return `TKB_${cleanClassName}_Tuan_${cleanWeek}.png`;
+}
+
+// Bảng 43 màu đặc trưng độc lập cho 43 giáo viên toàn trường
+export const TEACHER_COLORS_43 = [
+  '#2563eb', // 01: Xanh hoàng gia (Royal Blue)
+  '#059669', // 02: Xanh ngọc lục bảo (Emerald Green)
+  '#d97706', // 03: Vàng hổ phách đậm (Amber)
+  '#7c3aed', // 04: Tím violet (Violet)
+  '#dc2626', // 05: Đỏ ruby (Crimson Red)
+  '#0891b2', // 06: Xanh lam cyan (Teal / Cyan)
+  '#db2777', // 07: Hồng cánh sen (Magenta Pink)
+  '#ea580c', // 08: Cam đậm rực rỡ (Deep Orange)
+  '#4f46e5', // 09: Chàm hoàng gia (Indigo)
+  '#16a34a', // 10: Xanh lá cây tươi (Fresh Green)
+  '#9333ea', // 11: Tím phong lan (Purple)
+  '#ca8a04', // 12: Vàng mù tạt thổ hoàng (Ochre)
+  '#0284c7', // 13: Xanh thiên thanh (Sky Blue)
+  '#c026d3', // 14: Hồng tím dạ yến (Fuchsia)
+  '#65a30d', // 15: Xanh quả chanh cốm (Lime)
+  '#e11d48', // 16: Đỏ hồng nhung (Rose)
+  '#0d9488', // 17: Xanh ngọc đậm (Teal)
+  '#475569', // 18: Xám đá phiến lam (Slate)
+  '#b45309', // 19: Nâu đồng hổ phách (Bronze Amber)
+  '#6d28d9', // 20: Tím thẫm thanh lịch (Deep Violet)
+  '#15803d', // 21: Xanh rừng thông (Forest Green)
+  '#be123c', // 22: Đỏ thẫm lựu (Ruby Rose)
+  '#0369a1', // 23: Xanh biển sâu (Ocean Blue)
+  '#a21caf', // 24: Mận chín hoàng cung (Plum)
+  '#4d7c0f', // 25: Xanh rêu oliu (Olive Lime)
+  '#c2410c', // 26: Cam gạch nung (Rust Orange)
+  '#4338ca', // 27: Xanh lam cobalt (Cobalt Blue)
+  '#047857', // 28: Xanh ngọc bích (Jade Green)
+  '#86198f', // 29: Tím hoa cà (Orchid)
+  '#b91c1c', // 30: Đỏ gạch tươi (Scarlet Red)
+  '#0e7490', // 31: Xanh mòng két đậm (Deep Cyan)
+  '#9a3412', // 32: Nâu cam đất (Terracotta)
+  '#3730a3', // 33: Xanh bóng đêm hải quân (Navy)
+  '#166534', // 34: Xanh lá thẫm thảo nguyên (Pine Green)
+  '#701a75', // 35: Tím quả cà chín (Eggplant)
+  '#831843', // 36: Đỏ rượu vang nồng nàn (Burgundy)
+  '#155e75', // 37: Xanh biển đêm (Marine Teal)
+  '#854d0e', // 38: Nâu caramen đất sét (Mustard Brown)
+  '#312e81', // 39: Xanh đen sapphire (Midnight Sapphire)
+  '#14532d', // 40: Xanh rậm rạp nhiệt đới (Deep Jungle)
+  '#581c87', // 41: Tím thạch anh huyền bí (Imperial Purple)
+  '#7f1d1d', // 42: Đỏ bordeaux cổ điển (Wine Maroon)
+  '#0f766e'  // 43: Xanh cổ vịt huyền ảo (Dark Teal Pine)
+];
+
+/**
+ * Lấy mã màu riêng biệt của giáo viên (tổng 43 giáo viên = 43 màu khác nhau).
+ * Bất kể dạy môn gì, mỗi giáo viên sẽ có 1 màu nhận diện nhất quán trên toàn bộ TKB.
+ */
+export function getTeacherColor(state, teacherId) {
+  if (!teacherId) return '';
+  const teachers = state?.teachers || [];
+  const idx = teachers.findIndex(t => t.id === teacherId);
+  if (idx >= 0) {
+    return TEACHER_COLORS_43[idx % TEACHER_COLORS_43.length];
+  }
+  // Băm chuỗi ID/tên giáo viên nếu chưa có trong danh mục để luôn có màu xác định
+  let hash = 0;
+  for (let i = 0; i < teacherId.length; i++) {
+    hash = (hash << 5) - hash + teacherId.charCodeAt(i);
+    hash |= 0;
+  }
+  return TEACHER_COLORS_43[Math.abs(hash) % TEACHER_COLORS_43.length];
+}
+
+/**
+ * Chức năng mở khóa / khóa tiết học trên thời khóa biểu
+ * Tự động đồng bộ khóa/mở khóa cho lớp ghép nếu có
+ */
+export function toggleCellLock(state, classId, timeSlotId) {
+  const target = (state.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+  const newLock = target ? !target.locked : false;
+  const partner = target ? jointPartner(state, classId, target.subjectId) : null;
+
+  const cells = (state.timetableCells || []).map(c => {
+    if (c.classId === classId && c.timeSlotId === timeSlotId) {
+      return { ...c, locked: newLock };
+    }
+    if (partner && c.classId === partner.id && c.timeSlotId === timeSlotId && c.subjectId === target?.subjectId) {
+      return { ...c, locked: newLock };
+    }
+    return c;
+  });
+  return {
+    ...state,
+    timetableCells: cells,
+    draftSchedule: clone(cells)
+  };
+}
+
+/**
+ * Chức năng mở khóa tất cả các môn cố định trên toàn bộ thời khóa biểu
+ */
+export function unlockAllFixedCells(state) {
+  const cells = (state.timetableCells || []).map(c => ({ ...c, locked: false }));
+  return {
+    ...state,
+    timetableCells: cells,
+    draftSchedule: clone(cells)
+  };
+}
+
+/**
+ * Gán hoạt động đặc biệt (Chào cờ, Sinh hoạt lớp) vào ô lịch
+ */
+export function assignSpecialActivity(state, { classId, timeSlotId, type, locked = false }) {
+  const cls = (state.classes || []).find(c => c.id === classId);
+  const slot = (state.timeSlots || []).find(s => s.id === timeSlotId);
+  if (!cls || !slot) throw Error('Lớp học hoặc khung giờ không hợp lệ.');
+
+  let subjects = [...(state.subjects || [])];
+  let subjectId = '';
+  let teacherId = '';
+  let note = '';
+
+  if (type === 'chao_co') {
+    let chaoCoSubj = subjects.find(s =>
+      s.id === 'subj_special_chao_co' ||
+      s.code === 'CHAO_CO' ||
+      s.name?.toLowerCase().includes('chào cờ') ||
+      s.name?.toLowerCase().includes('chao co')
+    );
+    if (!chaoCoSubj) {
+      chaoCoSubj = {
+        id: 'subj_special_chao_co',
+        code: 'CHAO_CO',
+        name: 'Chào cờ',
+        color: '#dc2626'
+      };
+      subjects.push(chaoCoSubj);
+    }
+    subjectId = chaoCoSubj.id;
+    teacherId = '';
+    note = 'HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)';
+  } else if (type === 'sinh_hoat_lop') {
+    let shlSubj = subjects.find(s =>
+      s.id === 'subj_hdtn_hn' ||
+      s.code === 'HDTN_HN' ||
+      s.name?.toLowerCase().includes('hđtn') ||
+      s.name?.toLowerCase().includes('sinh hoạt')
+    );
+    if (!shlSubj) {
+      shlSubj = {
+        id: 'subj_hdtn_hn',
+        code: 'HDTN_HN',
+        name: 'HĐTN - HN',
+        color: '#4f46e5'
+      };
+      subjects.push(shlSubj);
+    }
+    subjectId = shlSubj.id;
+    teacherId = cls.homeroomTeacherId || '';
+    note = 'HĐTN-HN: Sinh hoạt lớp';
+  } else if (type === 'ta_esl') {
+    let eslSubj = subjects.find(s =>
+      s.id === 'subj_ta_esl' ||
+      s.code === 'TA_ESL' ||
+      s.name?.toLowerCase().includes('esl') ||
+      s.name?.toLowerCase().includes('tiếng anh esl')
+    );
+    if (!eslSubj) {
+      eslSubj = {
+        id: 'subj_ta_esl',
+        code: 'TA_ESL',
+        name: 'TA ESL',
+        color: '#6366f1'
+      };
+      subjects.push(eslSubj);
+    }
+    subjectId = eslSubj.id;
+    teacherId = '';
+    note = 'Tiếng Anh ESL';
+  } else if (type === 'clb') {
+    let clbSubj = subjects.find(s =>
+      s.id === 'subj_clb' ||
+      s.code === 'CLB' ||
+      s.name?.toLowerCase().includes('câu lạc bộ') ||
+      s.name?.toLowerCase().includes('clb')
+    );
+    if (!clbSubj) {
+      clbSubj = {
+        id: 'subj_clb',
+        code: 'CLB',
+        name: 'CLB',
+        color: '#059669'
+      };
+      subjects.push(clbSubj);
+    }
+    subjectId = clbSubj.id;
+    teacherId = '';
+    note = 'Câu lạc bộ (CLB)';
+  } else {
+    throw Error('Loại hoạt động không hợp lệ: ' + type);
+  }
+
+  // Cập nhật ô trong timetableCells & draftSchedule
+  const existing = (state.timetableCells || []).find(c => c.classId === classId && c.timeSlotId === timeSlotId);
+  const newCell = {
+    id: existing?.id || uid(),
+    classId,
+    timeSlotId,
+    day: `Thứ ${slot.dayOfWeek}`,
+    period: slot.period,
+    subjectId,
+    teacherId,
+    note,
+    locked: Boolean(locked),
+    restored: true,
+    userAssigned: true
+  };
+
+  const nextCells = (state.timetableCells || []).filter(c => !(c.classId === classId && c.timeSlotId === timeSlotId));
+  nextCells.push(newCell);
+
+  return {
+    ...state,
+    subjects,
+    timetableCells: nextCells,
+    draftSchedule: clone(nextCells)
+  };
+}
+
+/**
+ * Đặt lại tiết Chào cờ sáng Thứ 2 (Tiết 1) cho tất cả các lớp
+ */
+export function resetMondayFlagCeremony(state) {
+  let subjects = [...(state.subjects || [])];
+  let chaoCoSubj = subjects.find(s =>
+    s.id === 'subj_special_chao_co' ||
+    s.code === 'CHAO_CO' ||
+    s.name?.toLowerCase().includes('chào cờ') ||
+    s.name?.toLowerCase().includes('chao co')
+  );
+  if (!chaoCoSubj) {
+    chaoCoSubj = {
+      id: 'subj_special_chao_co',
+      code: 'CHAO_CO',
+      name: 'Chào cờ',
+      color: '#dc2626'
+    };
+    subjects.push(chaoCoSubj);
+  }
+
+  const slotMonP1 = (state.timeSlots || []).find(s => s.dayOfWeek === 2 && s.period === 1 && s.session === 'MORNING')
+    || (state.timeSlots || []).find(s => s.dayOfWeek === 2 && s.period === 1);
+  if (!slotMonP1) return state;
+
+  const classes = state.classes || [];
+  let cells = [...(state.timetableCells || [])];
+
+  for (const cls of classes) {
+    const existingIndex = cells.findIndex(c => c.classId === cls.id && c.timeSlotId === slotMonP1.id);
+    const cellData = {
+      id: existingIndex >= 0 ? cells[existingIndex].id : uid(),
+      classId: cls.id,
+      timeSlotId: slotMonP1.id,
+      day: 'Thứ 2',
+      period: 1,
+      subjectId: chaoCoSubj.id,
+      teacherId: '',
+      note: 'HĐTN-HN: Sinh hoạt dưới cờ (Chào cờ)',
+      locked: true
+    };
+    if (existingIndex >= 0) {
+      cells[existingIndex] = cellData;
+    } else {
+      cells.push(cellData);
+    }
+  }
+
+  return {
+    ...state,
+    subjects,
+    timetableCells: cells,
+    draftSchedule: clone(cells)
+  };
+}
+
+/**
+ * Định dạng thời gian nhật ký: HH:mm:ss - DD/MM
+ */
+export function formatHistoryTime(date = new Date()) {
+  const d = typeof date === 'string' || typeof date === 'number' ? new Date(date) : date;
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = n => String(n).padStart(2, '0');
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  const seconds = pad(d.getSeconds());
+  const day = pad(d.getDate());
+  const month = pad(d.getMonth() + 1);
+  return `${hours}:${minutes}:${seconds} - ${day}/${month}`;
+}
+
+/**
+ * Ghi lại 1 thay đổi vào nhật ký lịch tiết học
+ * Lưu trữ trạng thái trước khi thay đổi (previousScheduleSnapshot) để hoàn tác
+ */
+export function recordChange(state, {
+  actionType,
+  description,
+  classId = '',
+  timeSlotId = '',
+  slotLabel = '',
+  previousCell = null,
+  newCell = null,
+  actor = 'Người xếp lịch',
+  previousSnapshot = null
+}) {
+  const cls = (state.classes || []).find(c => c.id === classId);
+  const className = cls?.name || classId;
+
+  // Snapshot của toàn bộ timetableCells trước khi thao tác
+  const previousScheduleSnapshot = previousSnapshot || clone(state.timetableCells || []);
+
+  const historyRecord = {
+    id: uid(),
+    timestamp: new Date().toISOString(),
+    timeDisplay: formatHistoryTime(new Date()),
+    actor: actor || 'Người xếp lịch',
+    actionType, // 'ASSIGN', 'CLEAR', 'SPECIAL', 'LOCK', 'BATCH_UNLOCK', 'BATCH_RESET', 'EDIT'
+    description: description || 'Thay đổi lịch tiết học',
+    classId,
+    className,
+    timeSlotId,
+    slotLabel,
+    previousCell: previousCell ? clone(previousCell) : null,
+    newCell: newCell ? clone(newCell) : null,
+    previousScheduleSnapshot,
+    canUndo: true,
+    undone: false
+  };
+
+  const existingHistory = Array.isArray(state.changeHistory) ? state.changeHistory : [];
+  // Giữ lại 50 thay đổi gần nhất
+  const nextHistory = [historyRecord, ...existingHistory].slice(0, 50);
+
+  return {
+    ...state,
+    changeHistory: nextHistory
+  };
+}
+
+/**
+ * Hoàn tác (Undo) một thao tác trong nhật ký
+ * Nếu không truyền changeId: hoàn tác thao tác gần nhất có thể hoàn tác
+ */
+export function undoChange(state, changeId = null) {
+  const history = Array.isArray(state.changeHistory) ? [...state.changeHistory] : [];
+  if (history.length === 0) {
+    throw Error('Chưa có lịch sử thay đổi để hoàn tác.');
+  }
+
+  let targetIndex = -1;
+  if (changeId) {
+    targetIndex = history.findIndex(h => h.id === changeId && h.canUndo && !h.undone);
+  } else {
+    targetIndex = history.findIndex(h => h.canUndo && !h.undone && Array.isArray(h.previousScheduleSnapshot));
+  }
+
+  if (targetIndex < 0) {
+    throw Error('Không còn thao tác nào khả dụng để hoàn tác.');
+  }
+
+  const targetChange = history[targetIndex];
+  if (!Array.isArray(targetChange.previousScheduleSnapshot)) {
+    throw Error('Dữ liệu hoàn tác không khả dụng cho thao tác này.');
+  }
+
+  // Khôi phục lại danh sách ô lịch trước thao tác đó
+  const restoredCells = clone(targetChange.previousScheduleSnapshot);
+
+  // Đánh dấu thao tác mục tiêu đã được hoàn tác
+  history[targetIndex] = {
+    ...targetChange,
+    undone: true,
+    canUndo: false
+  };
+
+  // Thêm bản ghi hoàn tác vào nhật ký
+  const undoRecord = {
+    id: uid(),
+    timestamp: new Date().toISOString(),
+    timeDisplay: formatHistoryTime(new Date()),
+    actor: state.updatedBy || 'Người xếp lịch',
+    actionType: 'UNDO',
+    description: `Hoàn tác: ${targetChange.description}`,
+    undoneChangeId: targetChange.id,
+    canUndo: false,
+    undone: false
+  };
+
+  const updatedHistory = [undoRecord, ...history].slice(0, 50);
+
+  return {
+    ...state,
+    timetableCells: restoredCells,
+    draftSchedule: clone(restoredCells),
+    changeHistory: updatedHistory,
+    lastUndoneDescription: targetChange.description
+  };
+}
+
+
 
 
