@@ -6,7 +6,7 @@ export function authorizeRead(actor,collection,id){
  if(collection==='users'&&id===actor.email)return;
  if(!actor.active)throw fail(403,'Tài khoản chưa được cấp quyền.');
  if(collection==='users'&&(isAdmin(actor)||(id&&isScheduler(actor))))return;
- if(collection==='timetables'&&(id==='published'||(id==='working'&&isScheduler(actor))))return;
+ if(collection==='timetables'&&(id==='weekly_menu'||id==='published'||(id==='working'&&isScheduler(actor))))return;
  if(collection==='requests'||(collection==='availabilities'&&(id===actor.email||isScheduler(actor))))return;
  throw fail(403,'Bạn không có quyền đọc dữ liệu này.');
 }
@@ -24,11 +24,12 @@ export function authorizeWrite(actor,collection,id,previous,next,ownerEmail){
    throw fail(403,'Bạn không có quyền thay đổi hồ sơ chính thức.');
  }
  if(!actor.active)throw fail(403,'Tài khoản chưa được cấp quyền.');
+ if(collection==='timetables'&&id==='weekly_menu'&&isAdmin(actor)&&next!==null)return;
  if(collection==='timetables'&&['working','published'].includes(id)&&isScheduler(actor)&&next!==null)return;
  if(collection==='availabilities'&&(id===actor.email||isScheduler(actor))&&next!==null&&next.teacherEmail===id)return;
  if(collection==='requests'){
    if(!previous&&next?.teacherEmail===actor.email&&next.status==='PENDING')return;
-   if(previous&&isScheduler(actor)&&next!==null&&next.teacherEmail===previous.teacherEmail)return;
+   if(previous&&isScheduler(actor)&&(next===null||next.teacherEmail===previous.teacherEmail))return;
    if(previous?.teacherEmail===actor.email&&previous.status==='PENDING'){
      if(next===null)return;
      if(Object.keys({...previous,...next}).every(k=>['reason','proposal','updatedAt','updatedBy'].includes(k)||equal(previous[k],next[k])))return;

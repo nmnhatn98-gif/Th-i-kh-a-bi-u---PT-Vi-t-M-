@@ -1,0 +1,18 @@
+/* Workspace framing only: preserve every timetable row, column and lesson style. */
+.schedule-focus-bar{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:8px 12px;background:#174c40;color:white;flex-shrink:0}
+.schedule-focus-bar>div{display:flex;gap:6px;flex-wrap:wrap}.schedule-focus-bar button{padding:6px 9px;font-size:11px}.schedule-focus-bar [data-focus-sync]{font-size:11px}
+@media screen{
+ body:has(.schedule-focus){overflow:hidden}
+ .matrix-panel.schedule-focus{position:fixed;inset:0;z-index:100;border:0;border-radius:0;display:flex;flex-direction:column;height:100vh;height:100dvh;width:100%;max-width:none;background:#fff}
+ .schedule-focus>.panel-toolbar,.schedule-focus>.grade-toolbar{display:none}
+ .schedule-focus.focus-tools-open>.panel-toolbar,.schedule-focus.focus-tools-open>.grade-toolbar{display:flex;flex-shrink:0;padding:8px 12px}
+ .schedule-focus.focus-tools-open>.panel-toolbar{max-height:25vh;overflow:auto}
+ .schedule-focus>.matrix-caption{padding:8px 12px;flex-shrink:0}.schedule-focus>.matrix-caption h2{font-size:16px;margin:4px 0}.schedule-focus>.matrix-caption p{margin:3px 0}.schedule-focus .matrix-help{display:none}
+ .schedule-focus>.assignment-tray-wrapper{flex-shrink:0;margin:0;max-height:30vh;overflow:auto}.schedule-focus .assignment-tray-bar{padding:6px 12px}.schedule-focus .tray-cards-container{padding:8px 12px}
+ .schedule-focus>.matrix-scroll{flex:1;min-height:0;max-height:none!important}
+ .schedule-focus>.timetable-with-tray-container{flex:1;min-height:0;align-items:stretch;overflow:hidden}
+ .schedule-focus .timetable-with-tray-container>.matrix-scroll{min-height:0;max-height:none!important;height:100%}
+ .schedule-focus .timetable-tray-sidebar{min-height:0;overflow:auto}.schedule-focus>.matrix-bottom{flex-shrink:0;padding:4px 12px}
+}
+@media screen and (max-width:640px){.schedule-focus-bar>strong{font-size:12px}.schedule-focus-bar>div{width:100%}.schedule-focus-bar button{font-size:10px;padding:5px 7px}.schedule-focus>.matrix-caption h2{font-size:13px}.schedule-focus .timetable-with-tray-container.layout-right{grid-template-columns:minmax(0,1fr) 180px}}
+@media print{.schedule-focus-bar{display:none!important}}@media screen and (max-width:640px){.schedule-focus>.assignment-tray-wrapper{max-height:120px}.schedule-focus>.matrix-caption p{font-size:9px;line-height:1.3;max-height:2.6em;overflow:hidden}}

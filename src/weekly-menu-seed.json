@@ -1,0 +1,52 @@
+{
+  "startDate": "2026-10-26",
+  "endDate": "2026-10-30",
+  "title": "THỰC ĐƠN BÁN TRÚ",
+  "rows": [
+    {
+      "day": 2,
+      "breakfast": "Bánh canh chả cá thác lác + tôm+ thịt nạc\nBánh bao hấp nóng (150 cái)\nTrà chanh",
+      "soup": "Canh khoai mỡ nấu tôm",
+      "main": "Thịt heo quay kho trứng cút\nVịt xào gừng",
+      "vegetable": "Cải thìa sốt dầu hào",
+      "dessert": "Mận\nTrà đường",
+      "snack": "Mì Ý sốt bò bằm\nTrà đá"
+    },
+    {
+      "day": 3,
+      "breakfast": "Cơm gà xối mỡ\nSoup rau củ nấu thịt bằm\nTrà đá",
+      "soup": "Canh rau ngót,mướp hương + bắp nấu thịt bằm",
+      "main": "Cá điêu hồng muối sả chiên\nTép + thịt ram",
+      "vegetable": "Đậu que + cải đỏ xào",
+      "dessert": "Táo xanh\nNước suối",
+      "snack": "Khoai tây lắc phô mai\nSữa Vinamilk"
+    },
+    {
+      "day": 4,
+      "breakfast": "Hủ tiếu bò kho\nBánh mỳ bò kho\nNước suối",
+      "soup": "Canh bầu nấu tôm",
+      "main": "Sườn nấu cá mòi\nĐùi ếch xào lăn",
+      "vegetable": "Bắp cải + cải đỏ xào",
+      "dessert": "Xoài\nNước cam tươi",
+      "snack": "Xôi xoài Thái Lan\nNước mía"
+    },
+    {
+      "day": 5,
+      "breakfast": "Mì Hàn Quốc\nNước suối",
+      "soup": "Canh bông cải + cải thảo nấu thịt bằm",
+      "main": "Gà miếng chiên sốt cam\nCá thu kho khóm",
+      "vegetable": "Rau muống xào tỏi",
+      "dessert": "Dưa hấu\nTrà đá",
+      "snack": "Nui sao tôm ,thịt (L1- L2)\nChả giò rế, hoành thánh chiên\n(L 3- L12)\nNước cam tươi"
+    },
+    {
+      "day": 6,
+      "breakfast": "Bún cá miền tây\nBánh mì Kebab\n(150 phần)",
+      "soup": "Canh hẹ nấu thịt bằm + tàu hũ non",
+      "main": "Bò lúc lắc\nCơm rang giòn cá mặn + trứng chiên",
+      "vegetable": "Salad trộn dầu giấm",
+      "dessert": "Ổi\nNước mát",
+      "snack": "Hotdog kẹp xúc xích+chà bông\nTrà tắc"
+    }
+  ]
+}

@@ -147,6 +147,12 @@ const RAW_SEED = {
   ],
   "subjects": [
     {
+      "id": "subj_gdqp_an",
+      "code": "GDQP_AN",
+      "name": "GDQP-AN",
+      "color": "#1d4ed8"
+    },
+    {
       "id": "subj_toan",
       "code": "TOAN",
       "name": "Toán",
@@ -259,6 +265,18 @@ const RAW_SEED = {
       "code": "GDDP",
       "name": "GDĐP",
       "color": "#7c3aed"
+    },
+    {
+      "id": "subj_gdcd",
+      "code": "GDCD",
+      "name": "GDCD",
+      "color": "#0ea5e9"
+    },
+    {
+      "id": "subj_cong_nghe",
+      "code": "CONG_NGHE",
+      "name": "Công nghệ",
+      "color": "#10b981"
     },
     {
       "id": "subj_ta_esl",

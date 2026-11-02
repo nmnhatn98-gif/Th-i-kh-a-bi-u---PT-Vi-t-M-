@@ -1,4 +1,14 @@
-import {cellLessons,allLessons,subjectTrack,subjectsForClass,lessonBusy} from './core.js';
+import {createLessonReportView} from './lesson-reports.js';
+import {createWeeklyMenu} from './weekly-menu.js';
+import {matchesSuggestionSearch} from './suggestion-search.js';
+import {publishedExcel} from './published-excel.js';
+import {mondayOf,addDays,todayWeek,timetableWeek,weekCaption,weeklyRegistration,semesterKey,semesterRegistration,registrationSlotIndex,registrationForSlot,availabilityAlerts,newBusyAssignments} from './weekly-availability.js';
+import {installPhoneApp} from './pwa.js';
+import {showPushSettings,disableDevicePush} from './push-settings.js';
+import {applyMoves} from './ai-proposal.js';
+import {calendarEvents,upsertCalendar} from './calendar-sync.js';
+import {authorizeCalendar,askScheduleAI} from './firebase.js';
+import {cellLessons,allLessons,subjectTrack,subjectsForClass,lessonBusy,assertDailySubjectRules,assertSessionAndRoboticsRules} from './core.js';
 import { saveDriveFile } from './drive-backup.js';
 import { contentSignature } from './write-gate.js';
 import * as XLSX from 'xlsx';
@@ -9,6 +19,7 @@ import {
   keyOf,
   findConflicts,
   putCell,
+  assignSubstituteLesson,
   deleteCell,
   deleteEntity,
   makeSnapshot,
@@ -46,7 +57,8 @@ import {
   resetMondayFlagCeremony,
   recordChange,
   undoChange,
-  formatHistoryTime
+  formatHistoryTime,
+  getOnboardingSubjects
 } from './core.js';
 import html2canvas from 'html2canvas';
 import {
@@ -56,6 +68,7 @@ import {
   signInWithPopup,
   fbSignOut,
   onAuthStateChanged,
+  retryCloudReads,
   doc,
   getDoc,
   setDoc,
@@ -99,6 +112,7 @@ let isSavingWorking = false;
 let isGlobalSaving = false;
 let authGeneration=0;
 const pendingActions=new Set();
+let aiProposal=null;
 
 
 // Publishing Engine & Environment State
@@ -110,6 +124,8 @@ let armedCard = null; // { classId: string, subjectId: string, teacherId: string
 // Workspaces: 'ADMIN' | 'SCHEDULER' | 'HOMEROOM' | 'VISITING' | 'TEACHER'
 let currentWorkspace = 'ADMIN';
 let view = 'matrix'; // active sub-view
+let matrixFocusEnabled = true;
+let matrixFocusTools = false;
 let matrixViewMode = 'assignment'; // 'assignment' (Ma trận phân công Môn - Lớp) | 'timetable' (Tiết - Lớp)
 
 // Lưu giữ và bảo toàn tọa độ cuộn cho cả 2 bản ma trận (Phân công Môn-Lớp & TKB Tiết-Lớp)
@@ -202,6 +218,27 @@ let teacher = '';
 let query = '';
 let compact = true;
 let showPublished = false;
+let publishAndDataTab = 'all'; // 'all' | 'conflicts' | 'versions' | 'backup'
+let classHubTab = 'timetable'; // 'timetable' | 'reports' | 'menu' | 'all'
+let mobileMenuOpen = false;
+const isMobileMenu = () => window.matchMedia('(max-width:760px)').matches;
+function setMobileMenu(open) {
+  mobileMenuOpen = Boolean(open);
+  document.body.classList.toggle('mobile-menu-open', mobileMenuOpen);
+  document.querySelector('#app-sidebar')?.classList.toggle('mobile-open',mobileMenuOpen);
+  document.querySelector('.mobile-menu-backdrop')?.toggleAttribute('hidden',!mobileMenuOpen);
+  document.querySelector('.topbar-menu-toggle')?.setAttribute('aria-expanded',String(mobileMenuOpen));
+  document.querySelector('#app-sidebar')?.toggleAttribute('inert',isMobileMenu()&&!mobileMenuOpen);
+}
+window.addEventListener('resize',()=>setMobileMenu(false));
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&mobileMenuOpen){setMobileMenu(false);document.querySelector('.topbar-menu-toggle')?.focus();}});
+let isSidebarCollapsed = (() => {
+  try {
+    return localStorage.getItem('vas_sidebar_collapsed') === 'true';
+  } catch (e) {
+    return false;
+  }
+})();
 
 // Sub-view specific filters
 let selectedHomeroomClassId = '';
@@ -217,6 +254,7 @@ let authError = '';
 let profileReadError='';
 let loginIntent = 'teacher'; // 'admin' | 'teacher'
 let isSubmittingOnboarding = false;
+let isEditingDeclaredProfile = false;
 
 // Sync status
 let syncStatus = 'idle'; // 'idle' | 'saving' | 'error' | 'offline'
@@ -226,6 +264,13 @@ let syncMessage = 'Đã kết nối Cloud';
 let accountsList = [];
 let requestsList = [];
 let availabilityDoc = null;
+let selectedAvailabilityWeek = '';
+let selectedAvailabilityScope = '';
+let schedulerRegistrationWeek = '';
+let availabilityDrafts = new Map();
+let availabilityRecords = [];
+let availabilityLoadState = 'loading';
+let unsubAllAvailability = null;
 
 // Unsubscribers
 let unsubUser = null;
@@ -256,16 +301,20 @@ export const titles = {
   overview: 'Tổng quan hệ thống',
   matrix: 'Thời khóa biểu toàn trường',
   teacher: 'Lịch giáo viên',
+  publish_and_data: 'Kiểm tra & Công bố',
   conflicts: 'Kiểm tra xung đột',
   versions: 'Phiên bản & Bản đã chốt',
-  catalog: 'Danh mục phục vụ xếp lịch',
-  accounts: 'Quản lý tài khoản & Phân quyền',
-  pending: 'Hồ sơ giáo viên chờ xác nhận',
+  catalog: 'Danh mục xếp lịch',
+  accounts: 'Tài khoản & Phân quyền',
+  pending: 'Hồ sơ chờ xác nhận',
   backup: 'Sao lưu & Khôi phục',
   school: 'Thông tin nhà trường',
+  class_hub: 'TKB, Báo bài & Thực đơn',
+  lesson_reports: 'Báo bài tuần',
+  weekly_menu: 'Thực đơn tuần',
   homeroom_overview: 'Tổng quan lớp chủ nhiệm',
   homeroom_class: 'Thời khóa biểu lớp chủ nhiệm',
-  my_teaching: 'Lịch giảng dạy của tôi',
+  my_teaching: 'Lịch giảng dạy cá nhân',
   published_all: 'Thời khóa biểu toàn trường đã chốt',
   visiting_overview: 'Tổng quan giáo viên thỉnh giảng',
   availability: 'Đăng ký thời gian có thể dạy',
@@ -304,6 +353,7 @@ function toast(message) {
 function setSync(status, message = '') {
   syncStatus = status;
   syncMessage = message;
+  const focusStatus=document.querySelector('[data-focus-sync]');if(focusStatus)focusStatus.textContent=message||'Đã lưu Cloud';
   const statusEl = document.querySelector('#sync-indicator');
   if (statusEl) {
     statusEl.className = `sync-status ${status}`;
@@ -326,8 +376,12 @@ function isSchedulerRole() {
 function isTeacherRole() {
   return currentUserProfile?.role === 'TEACHER';
 }
+function homeroomTeacherIds(cls){return [...new Set([cls.homeroomTeacherId,cls.coHomeroomTeacherId].filter(Boolean))];}
+function officialHomeroomClassIds(){
+  return [...new Set([...(currentUserProfile?.homeroomClassIds || []),...(state.classes || []).filter(c=>currentUserProfile?.teacherId && homeroomTeacherIds(c).includes(currentUserProfile.teacherId)).map(c=>c.id)])];
+}
 function isHomeroomTeacher() {
-  return Array.isArray(currentUserProfile?.homeroomClassIds) && currentUserProfile.homeroomClassIds.length > 0;
+  return officialHomeroomClassIds().length > 0;
 }
 function isVisitingTeacher() {
   return !!currentUserProfile?.isVisiting;
@@ -339,7 +393,7 @@ function getAvailableWorkspaces() {
   if (isSchedulerRole()) ws.push({ id: 'SCHEDULER', label: 'Không gian xếp lịch' });
   if (isHomeroomTeacher()) ws.push({ id: 'HOMEROOM', label: 'Giáo viên chủ nhiệm' });
   if (isVisitingTeacher()) ws.push({ id: 'VISITING', label: 'Giáo viên thỉnh giảng' });
-  if (currentUserProfile?.teacherId) ws.push({ id: 'TEACHER', label: 'Lịch giảng dạy cá nhân' });
+  if (currentUserProfile?.teacherId && !isVisitingTeacher()) ws.push({ id: 'TEACHER', label: 'Lịch giảng dạy cá nhân' });
   return ws;
 }
 
@@ -359,15 +413,21 @@ function canEditWorking() {
 // Firestore Sync & Actions
 // ----------------------------------------------------
 async function syncWorkingToCloud(nextState) {
+  if(isSavingWorking){toast('Đang lưu. Vui lòng chờ hoàn tất rồi chọn tiếp.');return false;}
+  if(typeof navigator!=='undefined'&&navigator.onLine===false){toast('Đang mất mạng. Chưa thay đổi lịch, hãy kết nối lại rồi thử.');return false;}
   if (!isSchedulerRole()) {
     toast('Chỉ Người xếp lịch hoặc Quản trị viên mới được cập nhật bản nháp.');
     return false;
   }
   if (isQuotaExhausted()) { toast('Hết hạn mức ghi. Hãy tải sao lưu JSON và thử lại khi hạn mức khôi phục.'); return false; }
-  const generation=authGeneration;
+  const busyWarnings=newBusyAssignments(workingDraft,nextState,availabilityRecords);
+  if(busyWarnings.length&&!confirm('Giáo viên đã đăng ký bận trong tuần '+weekCaption(timetableWeek(nextState))+':\n'+availabilityWarningText(busyWarnings,nextState)+'\nVẫn xếp và lưu các tiết này?'))return false;
+  const generation=authGeneration,saveStartedAt=Date.now();
+  isSavingWorking=true;
   setSync('saving', 'Đang lưu lên Cloud...');
   try {
     validateState(nextState);
+    assertSessionAndRoboticsRules(nextState,nextState.timetableCells,workingDraft.timetableCells);
     let normalized = normalizeState(nextState);
     if(serverConfirmedWorking && areTimetablesContentEqual(serverConfirmedWorking,normalized)) {
       workingDraft=normalized; state=clone(displayed());
@@ -406,7 +466,7 @@ async function syncWorkingToCloud(nextState) {
     } else {
       state = clone(displayed());
     }
-    setSync('idle', 'Đã lưu Cloud');
+    setSync('idle', 'Đã lưu Cloud · '+((Date.now()-saveStartedAt)/1000).toFixed(1)+' giây');
     return true;
   } catch (error) {
     if(generation!==authGeneration)return false;
@@ -414,10 +474,11 @@ async function syncWorkingToCloud(nextState) {
     setSync('error', 'Lỗi lưu: ' + error.message);
     toast('Lỗi lưu Cloud: ' + error.message);
     return false;
-  }
+  } finally {if(generation===authGeneration)isSavingWorking=false;}
 }
 
 async function publishToCloud() {
+ if(isSavingWorking || isWriting()){toast('Vui lòng đợi lưu xong bản nháp.');return;}
   if (!isSchedulerRole()) return;
   if (isQuotaExhausted()) {
     toast('Hạn mức ghi Firestore đã hết (resource-exhausted). Không thể chốt lịch.');
@@ -429,6 +490,8 @@ async function publishToCloud() {
     return;
   }
 
+  if(!confirmWeeklyPublication())return;
+  try{assertSessionAndRoboticsRules(workingDraft);}catch(error){toast(error.message);return;}
   const dataToPublish = {
     school: workingDraft.school,
     classes: workingDraft.classes,
@@ -478,6 +541,7 @@ async function publishToCloud() {
 }
 
 async function unpublishFromCloud() {
+ if(isSavingWorking || isWriting()){toast('Vui lòng đợi lưu xong bản nháp.');return;}
   if (!isSchedulerRole()) return;
   if (isQuotaExhausted()) {
     toast('Hạn mức ghi Firestore đã hết (resource-exhausted). Không thể gỡ chốt.');
@@ -519,6 +583,7 @@ async function unpublishFromCloud() {
 // Realtime Data Subscriptions
 // ----------------------------------------------------
 function stopAllSubscriptions() {
+  if(unsubAllAvailability){unsubAllAvailability();unsubAllAvailability=null;}
   if (unsubWorking) { unsubWorking(); unsubWorking = null; }
   if (unsubPublished) { unsubPublished(); unsubPublished = null; }
   if (unsubAccounts) { unsubAccounts(); unsubAccounts = null; }
@@ -557,6 +622,7 @@ function initDataSubscriptions() {
     unsubWorking = onSnapshot(
       doc(db, 'timetables', 'working'),
       snap => {
+        if(isSavingWorking)return;
         // 3. Không tự tạo bản nháp khi mở trang. Chỉ lưu khi người dùng chủ động thay đổi dữ liệu: 0 ghi!
         if (!snap.exists()) {
           currentRevision = 0;
@@ -638,7 +704,9 @@ function initDataSubscriptions() {
   unsubRequests = onSnapshot(
     isSchedulerRole() ? collection(db, 'requests') : fsQuery(collection(db, 'requests'), where('teacherEmail', '==', currentUser.email.toLowerCase().trim())),
     snap => {
-      requestsList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      requestsList = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(r => r && r.id && !r.testOnly && !r.id.startsWith('__trial_connection'));
       requestsList.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
       render();
     },
@@ -652,7 +720,15 @@ function initDataSubscriptions() {
     }
   );
 
-  // 5. Visiting Availability listener
+  if(isSchedulerRole()){
+    availabilityLoadState='loading';
+    unsubAllAvailability=onSnapshot(collection(db,'availabilities'),snap=>{
+      const openPopover=snapshotTimetablePopover(),wasReady=availabilityLoadState==='ready',oldBusy=new Set(availabilityAlerts(workingDraft,availabilityRecords).busy.map(x=>JSON.stringify([x.teacherId,x.cell.classId,x.cell.timeSlotId])));
+      availabilityRecords=snap.docs.map(d=>({id:d.id,...d.data()}));availabilityLoadState='ready';render();restoreTimetablePopover(openPopover);
+      const newlyBusy=availabilityAlerts(workingDraft,availabilityRecords).busy.filter(x=>!oldBusy.has(JSON.stringify([x.teacherId,x.cell.classId,x.cell.timeSlotId])));if(wasReady&&newlyBusy.length)toast('Có '+newlyBusy.length+' tiết đã xếp trùng đăng ký bận mới. Các ô đã được đánh dấu BẬN để kiểm tra.');
+    },error=>{availabilityLoadState='error';render();});
+  }
+  // 5. Personal availability listener for every authorized teacher
   if (currentUser?.email) {
     unsubAvailability = onSnapshot(
       doc(db, 'availabilities', currentUser.email.toLowerCase()),
@@ -679,11 +755,12 @@ function initDataSubscriptions() {
 function handleAuthState() {
   onAuthStateChanged(auth, async user => {
     const generation = ++authGeneration;
+    isSavingWorking=false;aiProposal=null;calendarPreview=null;
     profileReadError='';
     stopAllSubscriptions();
     if (unsubUser) {unsubUser(); unsubUser=null;}
     currentUserProfile=null;
-    accountsList=[]; requestsList=[]; availabilityDoc=null;
+    accountsList=[]; requestsList=[]; availabilityDoc=null;availabilityRecords=[];availabilityDrafts=new Map();selectedAvailabilityWeek='';selectedAvailabilityScope='';schedulerRegistrationWeek='';availabilityLoadState='loading';
     serverConfirmedWorking=null; serverConfirmedAvailability=null;
     publishedTimetable=null; currentRevision=0;
     workingDraft=normalizeState(clone(SEED)); state=clone(workingDraft);
@@ -728,6 +805,8 @@ function handleAuthState() {
     unsubUser = onSnapshot(
       doc(db, 'users', email),
       docSnap => {
+        if(generation!==authGeneration)return;
+        profileReadError='';
         authLoading=false;
         if (!docSnap.exists()) {
           // User authenticated with Google but not yet in database
@@ -752,6 +831,8 @@ function handleAuthState() {
 
         if (isFirstLoad) {
           currentWorkspace = determineDefaultWorkspace();
+          view = currentWorkspace === 'HOMEROOM' ? 'homeroom_overview' : currentWorkspace === 'VISITING' ? 'visiting_overview' : currentWorkspace === 'TEACHER' ? 'my_teaching' : currentWorkspace === 'ADMIN' ? 'overview' : 'matrix';
+          if(new URLSearchParams(location.search).get('open')==='my_teaching'&&data.teacherId){currentWorkspace='TEACHER';view='my_teaching';history.replaceState(null,'',location.pathname);}
           if (isHomeroomTeacher()) {
             selectedHomeroomClassId = currentUserProfile.homeroomClassIds[0] || '';
           }
@@ -766,7 +847,9 @@ function handleAuthState() {
       err => {
         if(generation!==authGeneration)return;
         authLoading=false;
-        profileReadError='Không tải được hồ sơ tài khoản. Vui lòng kiểm tra kết nối hoặc thử lại sau. ('+(err.code || 'unknown')+')';
+        profileReadError=['unavailable',20,'20'].includes(err.code)||err.name==='AbortError'||err.name==='TimeoutError'
+          ? 'Kết nối bị gián đoạn khi tải tài khoản. App sẽ tự thử lại khi có mạng. Bạn cũng có thể bấm Thử lại bên dưới.'
+          : 'Chưa tải được hồ sơ tài khoản. Hãy bấm Thử lại. Nếu lỗi tiếp diễn, vui lòng liên hệ quản trị viên. ('+(err.code || 'unknown')+')';
         console.error('User subscription error:', err);
         currentUserProfile = null;
         render();
@@ -778,17 +861,10 @@ function handleAuthState() {
 // ----------------------------------------------------
 // Helper Calculations
 // ----------------------------------------------------
+function emptyTeacherTimetable(){return normalizeState({school:{},classes:[],subjects:[],teachers:[],timeSlots:[],timetableCells:[],activeVersion:'published'});}
 function displayed() {
   if (currentWorkspace !== 'ADMIN' && currentWorkspace !== 'SCHEDULER') {
-    if (publishedTimetable?.data) return normalizeState(publishedTimetable.data);
-    const pState = clone(workingDraft);
-    pState.timetableCells = (workingDraft.publishedSchedule && workingDraft.publishedSchedule.length > 0)
-      ? workingDraft.publishedSchedule
-      : [];
-    pState.draftAssignments = (workingDraft.publishedAssignments && workingDraft.publishedAssignments.length > 0)
-      ? workingDraft.publishedAssignments
-      : [];
-    return pState;
+    return publishedTimetable?.isPublished&&publishedTimetable?.data?normalizeState(publishedTimetable.data):emptyTeacherTimetable();
   }
   if (activeVersion === 'published' || showPublished) {
     if (publishedTimetable?.data) return normalizeState(publishedTimetable.data);
@@ -829,18 +905,18 @@ function renderAdminWorkspace() {
   const s = displayed();
   const conflicts = findConflicts(workingDraft);
   const pendingProfiles = accountsList.filter(a => a.active === false || (a.selfDeclared && !a.teacherId));
+  const pendingRequests = requestsList.filter(r => r.status === 'PENDING');
 
   const adminMenu = [
     ['overview', '📊', 'Tổng quan'],
-    ['matrix', '▦', 'Thời khóa biểu toàn trường'],
-    ['homeroom_class', '🖼️', 'Xuất TKB học sinh VASchools'],
-    ['catalog', '▤', 'Danh mục (Lớp/Môn/GV)'],
-    ['accounts', '👥', 'Quản lý tài khoản & Quyền'],
-    ['pending', '📋', `Hồ sơ GV chờ xác nhận ${pendingProfiles.length ? `<b class="badge">${pendingProfiles.length}</b>` : ''}`],
-    ['conflicts', '◎', `Kiểm tra xung đột ${conflicts.length ? `<b class="badge">${conflicts.length}</b>` : ''}`],
-    ['versions', '▱', 'Phiên bản & Công bố'],
-    ['backup', '💾', 'Sao lưu & Khôi phục'],
-    ['school', '🏫', 'Thông tin nhà trường']
+    ['matrix', '▦', 'Ma trận toàn trường'],
+    ['class_hub', '🖼️', `TKB, Báo bài & Thực đơn ${lessonReportsView.badge() ? `<b class="badge">${lessonReportsView.badge()}</b>` : ''}`],
+    ['catalog', '▤', 'Danh mục xếp lịch'],
+    ['accounts', '👥', 'Tài khoản & Phân quyền'],
+    ['pending', '📋', `Hồ sơ chờ xác nhận ${pendingProfiles.length ? `<b class="badge">${pendingProfiles.length}</b>` : ''}`],
+    ['teacher_requests', '📩', `Yêu cầu đổi lịch ${pendingRequests.length ? `<b class="badge">${pendingRequests.length}</b>` : ''}`],
+    ['publish_and_data', '▱', `Kiểm tra & Công bố ${conflicts.length ? `<b class="badge">${conflicts.length}</b>` : ''}`],
+    ['school', '🏫', 'Thông tin trường']
   ];
 
   return {
@@ -860,10 +936,10 @@ function renderAdminWorkspace() {
           </div>
 
           <section class="stats">
-            <div><span class="stat-icon">▤</span><div><strong>${s.classes?.length || 0}</strong><span>Lớp học</span></div></div>
-            <div><span class="stat-icon">♙</span><div><strong>${s.teachers?.length || 0}</strong><span>Giáo viên</span></div></div>
-            <div><span class="stat-icon">📚</span><div><strong>${s.subjects?.length || 0}</strong><span>Môn học</span></div></div>
-            <div class="${conflicts.length ? 'warning-stat' : ''}"><span class="stat-icon">◎</span><div><strong>${conflicts.length ? conflicts.length : 'Không có'}</strong><span>Lịch trùng cần xử lý</span></div></div>
+            <div><span class="stat-icon">▤</span><div class="stat-content"><strong>${s.classes?.length || 0}</strong><span>Lớp học</span></div></div>
+            <div><span class="stat-icon">♙</span><div class="stat-content"><strong>${s.teachers?.length || 0}</strong><span>Giáo viên</span></div></div>
+            <div><span class="stat-icon">📚</span><div class="stat-content"><strong>${s.subjects?.length || 0}</strong><span>Môn học</span></div></div>
+            <div class="${conflicts.length ? 'warning-stat' : ''}"><span class="stat-icon">◎</span><div class="stat-content"><strong>${conflicts.length ? conflicts.length : 'Không có'}</strong><span>Lịch trùng cần xử lý</span></div></div>
           </section>
 
           <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:20px;">
@@ -878,8 +954,8 @@ function renderAdminWorkspace() {
                     <div class="pending-box">
                       <strong>${esc(p.displayName || p.email)}</strong> <small>(${esc(p.email)})</small>
                       <div class="pending-details">
-                        Môn tự khai: ${esc(p.selfDeclared?.subjects?.join(', ') || 'Chưa chọn')}<br>
-                        Lớp chủ nhiệm tự khai: ${esc(p.selfDeclared?.homeroomClassId ? text(state.classes || [], p.selfDeclared.homeroomClassId) : 'Không chủ nhiệm')}
+                        Môn giảng dạy: ${esc(p.selfDeclared?.subjects?.join(', ') || 'Chưa chọn')}<br>
+                        Lớp chủ nhiệm: ${esc(p.selfDeclared?.homeroomClassId ? text(state.classes || [], p.selfDeclared.homeroomClassId) : 'Không chủ nhiệm')}
                       </div>
                       <button data-review-profile="${esc(p.email)}" class="primary" style="font-size:10px;padding:5px 9px;">Xác nhận & Cấp quyền</button>
                     </div>
@@ -903,6 +979,38 @@ function renderAdminWorkspace() {
                 <button data-view="matrix" class="primary" style="width:100%;">Mở ma trận toàn trường</button>
               </div>
             </div>
+
+            <div class="card" style="grid-column: 1 / -1; border-top: 3px solid ${pendingRequests.length ? '#f59e0b' : '#184239'};">
+              <div class="card-title">
+                <h2>Yêu cầu điều chỉnh thời khóa biểu từ Giáo viên (${pendingRequests.length})</h2>
+                <button data-view="teacher_requests" class="${pendingRequests.length ? 'primary' : ''}">Xem & Xử lý</button>
+              </div>
+              ${
+                pendingRequests.length
+                  ? `
+                <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:12px;margin-top:10px;">
+                  ${pendingRequests.slice(0, 4).map(r => `
+                    <div class="request-card" style="margin:0;border-left:4px solid #f59e0b;background:#fffbeb;">
+                      <div class="req-header">
+                        <strong>${esc(r.teacherName || r.teacherEmail || 'Giáo viên')}</strong>
+                        <span class="req-status pending">Chờ xử lý</span>
+                      </div>
+                      <div class="req-body" style="font-size:12px;">
+                        ${r.lessonSummary ? `<div><strong>Tiết:</strong> ${esc(r.lessonSummary)}</div>` : ''}
+                        <strong>Lý do:</strong> ${esc(r.reason || '—')}<br>
+                        <strong>Đề xuất:</strong> ${esc(r.proposal || '—')}
+                      </div>
+                      <div style="margin-top:8px;display:flex;gap:6px;">
+                        <button data-action="respond-request" data-id="${esc(r.id)}" data-decision="APPROVED" class="primary" style="font-size:11px;padding:4px 8px;">Chấp thuận</button>
+                        <button data-action="respond-request" data-id="${esc(r.id)}" data-decision="REJECTED" class="danger-link" style="font-size:11px;padding:4px 8px;">Từ chối</button>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              `
+                  : '<p class="muted">Không có yêu cầu điều chỉnh nào đang chờ xử lý từ giáo viên.</p>'
+              }
+            </div>
           </div>
         `;
       }
@@ -910,11 +1018,10 @@ function renderAdminWorkspace() {
       if (view === 'catalog') return catalog();
       if (view === 'accounts') return accountsPage();
       if (view === 'pending') return renderPendingProfilesPage(pendingProfiles);
-      if (view === 'conflicts') return conflictPage();
-      if (view === 'versions') return versionsPage();
-      if (view === 'backup') return settings();
+      if (view === 'teacher_requests') return renderSchedulerTeacherRequests();
+      if (view === 'publish_and_data' || view === 'conflicts' || view === 'versions' || view === 'backup') return renderPublishAndDataPage();
       if (view === 'school') return renderSchoolPage();
-      if (view === 'homeroom_class') return renderHomeroomClassTimetable(s.classes || []);
+      if (view === 'class_hub' || view === 'homeroom_class' || view === 'weekly_menu' || view === 'lesson_reports') return renderClassHubPage(s.classes || []);
       return renderMatrixSection(s);
     }
   };
@@ -929,24 +1036,23 @@ function renderSchedulerWorkspace() {
 
   const schedulerMenu = [
     ['matrix', '▦', 'Ma trận toàn trường'],
-    ['homeroom_class', '🖼️', 'Xuất TKB học sinh VASchools'],
-    ['conflicts', '◎', `Kiểm tra xung đột ${conflicts.length ? `<b class="badge">${conflicts.length}</b>` : ''}`],
-    ['catalog', '▤', 'Danh mục phục vụ xếp lịch'],
-    ['teacher_requests', '📩', `Lịch bận & Yêu cầu ${requestsList.filter(r => r.status === 'PENDING').length ? `<b class="badge">${requestsList.filter(r => r.status === 'PENDING').length}</b>` : ''}`],
-    ['versions', '▱', 'Phiên bản & Bản đã chốt'],
-    ...(currentUserProfile?.teacherId ? [['my_teaching', '◷', 'Lịch giảng dạy của tôi']] : [])
+    ['class_hub', '🖼️', `TKB, Báo bài & Thực đơn ${lessonReportsView.badge() ? `<b class="badge">${lessonReportsView.badge()}</b>` : ''}`],
+    ['catalog', '▤', 'Danh mục xếp lịch'],
+    ['teacher_requests', '📩', `Yêu cầu đổi lịch ${requestsList.filter(r => r.status === 'PENDING').length ? `<b class="badge">${requestsList.filter(r => r.status === 'PENDING').length}</b>` : ''}`],
+    ['publish_and_data', '▱', `Kiểm tra & Công bố ${conflicts.length ? `<b class="badge">${conflicts.length}</b>` : ''}`],
+    ...(currentUserProfile?.teacherId ? [['my_teaching', '◷', 'Lịch dạy cá nhân'], ['availability', '📅', 'Đăng ký rảnh / bận']] : [])
   ];
 
   return {
     menu: schedulerMenu,
     content: () => {
       if (view === 'matrix') return renderMatrixSection(s);
-      if (view === 'homeroom_class') return renderHomeroomClassTimetable(s.classes || []);
-      if (view === 'conflicts') return conflictPage();
+      if (view === 'class_hub' || view === 'homeroom_class' || view === 'weekly_menu' || view === 'lesson_reports') return renderClassHubPage(s.classes || []);
       if (view === 'catalog') return catalog();
       if (view === 'teacher_requests') return renderSchedulerTeacherRequests();
-      if (view === 'versions') return versionsPage();
+      if (view === 'publish_and_data' || view === 'conflicts' || view === 'versions' || view === 'backup') return renderPublishAndDataPage();
       if (view === 'my_teaching') return renderMyTeachingView();
+      if (view === 'availability') return renderAvailabilityView();
       return renderMatrixSection(s);
     }
   };
@@ -958,7 +1064,7 @@ function renderSchedulerWorkspace() {
 function renderHomeroomWorkspace() {
   const teacherId = currentUserProfile?.teacherId || '';
   const teacherObj = (state.teachers || []).find(t => t.id === teacherId);
-  const homeroomIds = currentUserProfile?.homeroomClassIds || [];
+  const homeroomIds = officialHomeroomClassIds();
   const homeroomClasses = (state.classes || []).filter(c => homeroomIds.includes(c.id));
   const todayDay = getTodayDayOfWeek();
 
@@ -966,10 +1072,11 @@ function renderHomeroomWorkspace() {
   const todayMyLessons = myLessons.filter(l => l.slot?.dayOfWeek === todayDay);
 
   const homeroomMenu = [
-    ['homeroom_overview', '🏠', 'Tổng quan lớp chủ nhiệm'],
-    ['homeroom_class', '📅', 'Thời khóa biểu lớp chủ nhiệm'],
-    ['my_teaching', '◷', 'Lịch giảng dạy của tôi'],
-    ['published_all', '▦', 'Lịch tiết học toàn trường (Đã chốt)'],
+    ['homeroom_overview', '🏠', 'Tổng quan chủ nhiệm'],
+    ['class_hub', '🖼️', `TKB, Báo bài & Thực đơn ${lessonReportsView.badge() ? `<b class="badge">${lessonReportsView.badge()}</b>` : ''}`],
+    ['my_teaching', '◷', 'Lịch dạy cá nhân'],
+    ['availability', '📅', 'Đăng ký rảnh / bận'],
+    ['published_all', '▦', 'TKB toàn trường đã chốt'],
     ['profile', '👤', 'Hồ sơ của tôi'],
     ['submit_request', '✉️', 'Gửi yêu cầu điều chỉnh']
   ];
@@ -982,10 +1089,9 @@ function renderHomeroomWorkspace() {
           <div class="dashboard-hero">
             <span class="hero-tag">GIÁO VIÊN CHỦ NHIỆM</span>
             <h2>Thầy/Cô ${esc(teacherObj?.fullName || currentUserProfile?.displayName)}</h2>
-            <p>Lớp chủ nhiệm chính thức: <strong>${esc(homeroomClasses.map(c => c.name).join(', ') || 'Chưa gán')}</strong> · Môn khai báo: ${esc(currentUserProfile?.selfDeclared?.subjects?.join(', ') || '—')}</p>
+            <p>Lớp chủ nhiệm: <strong>${esc(homeroomClasses.map(c => c.name).join(', ') || 'Chưa gán')}</strong><br>Môn giảng dạy: ${esc(currentUserProfile?.selfDeclared?.subjects?.join(', ') || '—')}</p>
             <div class="hero-tags">
               <span class="hero-tag">Tiết dạy hôm nay (Thứ ${todayDay}): ${todayMyLessons.length} tiết</span>
-              <span class="hero-tag">Bản chốt: ${publishedTimetable?.isPublished ? esc(publishedTimetable.name) : 'Chưa có bản chốt'}</span>
             </div>
           </div>
 
@@ -1017,7 +1123,7 @@ function renderHomeroomWorkspace() {
             <div class="card">
               <div class="card-title">
                 <h2>Thời khóa biểu lớp chủ nhiệm</h2>
-                <button data-view="homeroom_class" class="primary">Mở lịch lớp</button>
+                <button data-view="class_hub" class="primary">Mở lịch & Báo bài</button>
               </div>
               <p>Xem toàn bộ lịch học của lớp mình chủ nhiệm để theo dõi và nhắc nhở học sinh.</p>
               <div style="margin-top:16px;">
@@ -1032,12 +1138,13 @@ function renderHomeroomWorkspace() {
           </div>
         `;
       }
-      if (view === 'homeroom_class') return renderHomeroomClassTimetable(homeroomClasses);
+      if (view === 'class_hub' || view === 'homeroom_class' || view === 'weekly_menu' || view === 'lesson_reports') return renderClassHubPage(homeroomClasses);
       if (view === 'my_teaching') return renderMyTeachingView();
+      if (view === 'availability') return renderAvailabilityView();
       if (view === 'published_all') return renderMatrixSection(displayed());
       if (view === 'profile') return renderMyProfileView();
       if (view === 'submit_request') return renderTeacherRequestSubmission();
-      return renderHomeroomClassTimetable(homeroomClasses);
+      return renderClassHubPage(homeroomClasses);
     }
   };
 }
@@ -1050,12 +1157,14 @@ function renderVisitingWorkspace() {
   const myLessons = getTeacherLessons(teacherId, publishedTimetable?.data);
   const todayDay = getTodayDayOfWeek();
   const todayMyLessons = myLessons.filter(l => l.slot?.dayOfWeek === todayDay);
-  const myRequests = requestsList.filter(r => r.teacherEmail === currentUser.email);
+  const userEmail = (currentUser?.email || '').toLowerCase().trim();
+  const myRequests = requestsList.filter(r => (r.teacherEmail || '').toLowerCase().trim() === userEmail);
 
   const visitingMenu = [
     ['visiting_overview', '⚡', 'Tổng quan thỉnh giảng'],
-    ['my_teaching', '◷', 'Lịch giảng dạy của tôi'],
-    ['availability', '📅', 'Đăng ký thời gian có thể dạy'],
+    ['my_teaching', '◷', 'Lịch dạy cá nhân'],
+    ['availability', '📅', 'Đăng ký rảnh / bận'],
+    ['class_hub', '🖼️', `Báo bài ${lessonReportsView.badge() ? `<b class="badge">${lessonReportsView.badge()}</b>` : ''}`],
     ['submit_request', '✉️', `Báo bận / Đổi lịch ${myRequests.filter(r => r.status === 'PENDING').length ? `<b class="badge">${myRequests.filter(r => r.status === 'PENDING').length}</b>` : ''}`],
     ['profile', '👤', 'Hồ sơ cá nhân']
   ];
@@ -1068,6 +1177,7 @@ function renderVisitingWorkspace() {
           <div class="dashboard-hero">
             <span class="hero-tag">GIÁO VIÊN THỈNH GIẢNG</span>
             <h2>Chào mừng Thầy/Cô ${esc(currentUserProfile?.displayName || currentUser?.email)}</h2>
+          <p>Lớp chủ nhiệm: <strong>${esc(officialHomeroomClassIds().map(id => text(state.classes || [], id)).join(', ') || 'Không chủ nhiệm')}</strong><br>Môn giảng dạy: ${esc(currentUserProfile?.selfDeclared?.subjects?.join(', ') || '—')}</p>
             <p>Hệ thống tự động cập nhật lịch giảng dạy và cho phép đăng ký khung giờ rảnh trực tiếp cho Người xếp lịch.</p>
           </div>
 
@@ -1103,8 +1213,8 @@ function renderVisitingWorkspace() {
               </div>
               <p>Khai báo các khung giờ bận/rảnh để Người xếp lịch bố trí tiết học phù hợp nhất.</p>
               <div style="margin-top:14px;background:#f8faf6;padding:14px;border-radius:8px;font-size:11px;">
-                Đã đăng ký: <strong>${availabilityDoc?.availableSlotIds?.length || 0} tiết rảnh</strong> · <strong>${availabilityDoc?.busySlotIds?.length || 0} tiết bận</strong><br>
-                Ghi chú: ${esc(availabilityDoc?.note || 'Không có')}
+                Đã đăng ký: <strong>${weeklyRegistration(availabilityDoc,availabilityWeek(),publishedTimetable?.data||state)?.availableSlotIds?.length || 0} tiết rảnh</strong> · <strong>${weeklyRegistration(availabilityDoc,availabilityWeek(),publishedTimetable?.data||state)?.busySlotIds?.length || 0} tiết bận</strong><br>
+                Ghi chú: ${esc(weeklyRegistration(availabilityDoc,availabilityWeek(),publishedTimetable?.data||state)?.note || 'Không có')}
               </div>
             </div>
           </div>
@@ -1112,6 +1222,7 @@ function renderVisitingWorkspace() {
       }
       if (view === 'my_teaching') return renderMyTeachingView();
       if (view === 'availability') return renderAvailabilityView();
+      if (view === 'class_hub' || view === 'homeroom_class' || view === 'weekly_menu' || view === 'lesson_reports') return renderClassHubPage(state.classes || []);
       if (view === 'submit_request') return renderTeacherRequestSubmission();
       if (view === 'profile') return renderMyProfileView();
       return renderMyTeachingView();
@@ -1124,9 +1235,10 @@ function renderVisitingWorkspace() {
 // ----------------------------------------------------
 function renderRegularTeacherWorkspace() {
   const teacherMenu = [
-    ['my_teaching', '◷', 'Lịch giảng dạy của tôi'],
-    ['homeroom_class', '🖼️', 'TKB lớp học (Mẫu VASchools)'],
-    ['published_all', '▦', 'Lịch tiết học toàn trường (Đã chốt)'],
+    ['my_teaching', '◷', 'Lịch dạy cá nhân'],
+    ['availability', '📅', 'Đăng ký rảnh / bận'],
+    ['class_hub', '🖼️', `TKB, Báo bài & Thực đơn ${lessonReportsView.badge() ? `<b class="badge">${lessonReportsView.badge()}</b>` : ''}`],
+    ['published_all', '▦', 'TKB toàn trường đã chốt'],
     ['submit_request', '✉️', 'Gửi yêu cầu điều chỉnh'],
     ['profile', '👤', 'Hồ sơ của tôi']
   ];
@@ -1135,7 +1247,8 @@ function renderRegularTeacherWorkspace() {
     menu: teacherMenu,
     content: () => {
       if (view === 'my_teaching') return renderMyTeachingView();
-      if (view === 'homeroom_class') return renderHomeroomClassTimetable(state.classes || []);
+      if (view === 'availability') return renderAvailabilityView();
+      if (view === 'class_hub' || view === 'homeroom_class' || view === 'weekly_menu' || view === 'lesson_reports') return renderClassHubPage(state.classes || []);
       if (view === 'published_all') return renderMatrixSection(displayed());
       if (view === 'submit_request') return renderTeacherRequestSubmission();
       if (view === 'profile') return renderMyProfileView();
@@ -1148,6 +1261,7 @@ function renderRegularTeacherWorkspace() {
 // Sub-view: TKB Lớp học & Lớp chủ nhiệm (Khung chuẩn VASchools)
 // ----------------------------------------------------
 function renderHomeroomClassTimetable(homeroomClasses) {
+  if(!isSchedulerRole()&&!publishedTimetable?.isPublished)return '<div class="card"><h2>Chưa có thời khóa biểu hiện hành</h2><p>Nhà trường chưa công bố hoặc đã thu hồi lịch. Lịch mới sẽ tự cập nhật sau khi công bố.</p></div>';
   const pData = (publishedTimetable && publishedTimetable.isPublished && publishedTimetable.data)
     ? publishedTimetable.data
     : (state || workingDraft);
@@ -1171,11 +1285,9 @@ function renderHomeroomClassTimetable(homeroomClasses) {
   const isGrade11 = (currentClass.grade === 11) || /\b11\b/.test(currentClass.name || '') || /\b11\b/.test(currentClass.code || '');
 
   const hrTeacher = (pData.teachers || state.teachers || []).find(t => t.id === currentClass.homeroomTeacherId);
-  const hrTeacherName = hrTeacher?.fullName || '';
+  const hrTeacherName = homeroomTeacherIds(currentClass).map(id=>(pData.teachers || state.teachers || []).find(t=>t.id===id)?.fullName).filter(Boolean).join(' · ');
 
-  const weekNum = (pData.school?.week || '').match(/\d+/)?.[0] || '11';
-  const dateRange = pData.school?.appliedDate || '26/10 - 30/10/2026';
-  const weekBadgeText = `Tuần ${weekNum}: ${dateRange}`;
+  const weekBadgeText = posterWeekInfo(pData.school).caption;
 
   let classTitleText = `LỚP ${esc(currentClass.name.replace(/^Lớp\s*/i, ''))}`;
   if (isGrade11) {
@@ -1256,9 +1368,9 @@ function renderHomeroomClassTimetable(homeroomClasses) {
   }
 
   return `
-    <section class="matrix-panel" style="padding-bottom:30px;">
+    <section class="matrix-panel student-timetable-section" style="padding-bottom:30px;">
       <!-- Toolbar Điều khiển -->
-      <div class="panel-toolbar" style="flex-wrap:wrap;gap:14px;background:#ffffff;padding:12px 18px;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,0.06);margin-bottom:20px;align-items:center;">
+      <div class="panel-toolbar student-poster-toolbar" style="flex-wrap:wrap;gap:14px;background:#ffffff;padding:12px 18px;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,0.06);margin-bottom:20px;align-items:center;">
         <div style="display:flex;align-items:center;gap:8px;">
           <label style="font-size:12px;font-weight:700;color:#184239;">LỚP HỌC:</label>
           <select id="homeroom-class-select" style="font-weight:700;padding:6px 12px;border:1.5px solid #8C0D36;border-radius:6px;color:#8C0D36;background:#ffffff;cursor:pointer;">
@@ -1282,9 +1394,9 @@ function renderHomeroomClassTimetable(homeroomClasses) {
           Hiển thị tên Giáo viên
         </label>
 
-        <div class="toolbar-right" style="margin-left:auto;display:flex;align-items:center;gap:10px;">
-          <button data-action="export-timetable-image" style="background:#8C0D36;color:#ffffff;border:none;padding:9px 18px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(140,13,54,0.25);">
-            📸 Tải ảnh TKB về máy (.PNG)
+        <div class="toolbar-right student-poster-actions" style="margin-left:auto;display:flex;align-items:center;gap:10px;">
+          <button data-action="poster-drive">☁ Lưu ảnh lên Drive</button><button data-action="export-timetable-image" style="background:#8C0D36;color:#ffffff;border:none;padding:9px 18px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 6px rgba(140,13,54,0.25);">
+            📸 Tải ảnh TKB về máy (.JPG)
           </button>
           <button data-action="print-poster" style="background:#f0f4eb;color:#184239;border:1px solid #c2ceb9;padding:9px 15px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer;">
             🖨️ In Thời khóa biểu
@@ -1394,8 +1506,8 @@ function renderMyTeachingView() {
   }
 
   return `
-    <section class="card">
-      <div class="card-title">
+    <section class="card personal-teaching-card">
+      <div class="card-title personal-teaching-toolbar">
         <div>
           <h2>Lịch giảng dạy của: ${esc(teacherObj?.fullName || currentUserProfile?.displayName)}</h2>
           <small>Mã GV: ${esc(teacherObj?.code || '—')} · Tổng số tiết trong tuần: <strong>${myLessons.length} tiết</strong></small>
@@ -1405,8 +1517,9 @@ function renderMyTeachingView() {
             <button data-switch-personal-mode="week" class="${personalViewMode === 'week' ? 'active' : ''}">Chế độ tuần</button>
             <button data-switch-personal-mode="day" class="${personalViewMode === 'day' ? 'active' : ''}">Danh sách theo ngày</button>
           </div>
-          <button data-action="print">In lịch dạy</button>
-          <button data-action="csv">Xuất CSV</button>
+          <button class="primary" data-action="personal-jpg">📷 Tải lịch dạy (.JPG)</button>
+          <button data-action="push-settings">🔔 Nhắc lịch trên điện thoại</button><button data-action="calendar-connect">Đồng bộ Google Calendar</button><button data-action="calendar-ics">Tải lịch (.ICS)</button>
+
         </div>
       </div>
 
@@ -1420,7 +1533,8 @@ function renderMyTeachingView() {
 }
 
 function renderPersonalWeeklyGrid(myLessons, pData) {
-  const lessonsMap = new Map(myLessons.map(l => [l.slot?.id, l]));
+  const lessonsMap = new Map();
+  for(const lesson of myLessons){const id=lesson.slot?.id;if(!lessonsMap.has(id))lessonsMap.set(id,[]);lessonsMap.get(id).push(lesson);}
 
   let rows = '';
   for (let period = 1; period <= 9; period++) {
@@ -1435,15 +1549,16 @@ function renderPersonalWeeklyGrid(myLessons, pData) {
         ${[2, 3, 4, 5, 6]
           .map(day => {
             const slot = (pData.timeSlots || []).find(s => s.dayOfWeek === day && s.globalPeriod === period);
-            const lesson = slot ? lessonsMap.get(slot.id) : null;
+            const group = slot ? lessonsMap.get(slot.id) || [] : [];
+            const lesson = group[0];
             return `
             <td class="lesson ${lesson ? 'filled' : 'empty'}" style="${lesson?.subject ? '--subject:' + esc(lesson.subject.color) + ';' : ''}">
               ${
                 lesson
                   ? `
-                <div style="padding:6px;border-radius:4px;background:color-mix(in srgb,var(--subject,#666) 15%,white);height:100%;text-align:left;">
+                <div style="padding:6px;border-radius:4px;background:${/^#[a-f0-9]{6}$/i.test(lesson.subject?.color||'')?lesson.subject.color+'24':'#edf3eb'};height:100%;text-align:left;">
                   <strong style="font-size:10px;color:#184239;display:block;">${esc(lesson.subject?.name)}</strong>
-                  <span style="font-size:10px;color:#2f5344;font-weight:600;">Lớp: ${esc(lesson.class?.name)}</span>
+                  <span style="font-size:10px;color:#2f5344;font-weight:600;">${esc([...new Set(group.map(l=>l.class?.name||''))].join(', '))}</span>
                   ${lesson.cell.note ? `<small style="font-size:8px;color:#70867a;display:block;">${esc(lesson.cell.note)}</small>` : ''}
                 </div>
               `
@@ -1458,23 +1573,51 @@ function renderPersonalWeeklyGrid(myLessons, pData) {
   }
 
   return `
-    <div class="matrix-scroll">
-      <table class="matrix" style="width:100%;min-width:650px;">
+    <div class="matrix-scroll personal-week-scroll">
+      <table class="matrix personal-week-grid" style="width:100%;min-width:0;">
         <thead>
           <tr>
-            <th style="width:40px;">Tiết</th>
-            <th style="width:85px;">Giờ</th>
-            <th>Thứ Hai</th>
-            <th>Thứ Ba</th>
-            <th>Thứ Tư</th>
-            <th>Thứ Năm</th>
-            <th>Thứ Sáu</th>
+            <th style="width:40px;height:36px;padding:6px;vertical-align:middle;">Tiết</th>
+            <th style="width:70px;height:36px;padding:6px;vertical-align:middle;">Giờ</th>
+            <th style="height:36px;padding:6px;vertical-align:middle;">Thứ Hai</th>
+            <th style="height:36px;padding:6px;vertical-align:middle;">Thứ Ba</th>
+            <th style="height:36px;padding:6px;vertical-align:middle;">Thứ Tư</th>
+            <th style="height:36px;padding:6px;vertical-align:middle;">Thứ Năm</th>
+            <th style="height:36px;padding:6px;vertical-align:middle;">Thứ Sáu</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
     </div>
   `;
+}
+
+let personalJpgBusy=false;
+async function downloadPersonalTeachingJpg(){
+  if(personalJpgBusy)return;
+  if(!publishedTimetable?.isPublished||!currentUserProfile?.teacherId){toast('Chưa có lịch dạy đã công bố để tải.');return;}
+  personalJpgBusy=true;
+  const button=document.querySelector('[data-action="personal-jpg"]');
+  if(button){button.disabled=true;button.textContent='Đang tạo ảnh…';}
+  const pData=publishedTimetable.data,teacherId=currentUserProfile.teacherId;
+  const teacher=(pData.teachers||[]).find(t=>t.id===teacherId);
+  const teacherName=teacher?.fullName||currentUserProfile.displayName||'Giáo viên';
+  const lessons=getTeacherLessons(teacherId,pData),week=posterWeekInfo(pData.school);
+  const sheet=document.createElement('section');
+  sheet.className='personal-jpg-sheet';
+  sheet.style.cssText='position:fixed;left:-20000px;top:0;width:1100px;max-width:none;padding:24px;box-sizing:border-box;background:#fff;color:#184239;font-family:Arial,sans-serif;';
+  sheet.innerHTML=`<header style="text-align:center;margin-bottom:20px"><h2 style="font-size:26px;margin:0 0 8px">LỊCH GIẢNG DẠY CÁ NHÂN</h2><strong style="font-size:20px">${esc(teacherName)}</strong><p style="margin:8px 0;font-size:16px">${esc(pData.school?.name||'')} · ${esc(week.caption)}</p></header>${renderPersonalWeeklyGrid(lessons,pData)}`;
+  document.body.append(sheet);
+  try{
+    await document.fonts.ready;
+    const canvas=await html2canvas(sheet,{width:1100,height:sheet.offsetHeight,scale:2,backgroundColor:'#ffffff',useCORS:true,logging:false,windowWidth:1200});
+    const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.95));
+    if(!blob)throw Error('Chưa tạo được ảnh JPG.');
+    const filename=`Lich-day-${teacherName.replace(/[^\p{L}\p{N}-]+/gu,'-')}-${timetableWeek(pData)||'hien-hanh'}.jpg`;
+    const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=filename;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);
+    toast('Đã tạo ảnh JPG đầy đủ lịch dạy cả tuần.');
+  }catch(error){toast('Chưa tải được ảnh: '+error.message);}
+  finally{sheet.remove();personalJpgBusy=false;if(button){button.disabled=false;button.textContent='📷 Tải lịch dạy (.JPG)';}}
 }
 
 function renderPersonalDailyAgenda(myLessons) {
@@ -1521,17 +1664,59 @@ function renderPersonalDailyAgenda(myLessons) {
 }
 
 // ----------------------------------------------------
-// Sub-view: Đăng ký thời gian có thể dạy (Thỉnh giảng)
+// Sub-view: Đăng ký tiết rảnh / bận cho mọi giáo viên
 // ----------------------------------------------------
-function renderAvailabilityView() {
+function availabilityWeek(){return selectedAvailabilityWeek||(selectedAvailabilityWeek=timetableWeek(publishedTimetable?.data||state)||todayWeek());}
+function availabilityScope(){return isVisitingTeacher()?(selectedAvailabilityScope||'semester'):'week';}
+function availabilityDraftKey(){return availabilityScope()==='semester'?'semester:'+semesterKey(publishedTimetable?.data||state):'week:'+availabilityWeek();}
+function currentAvailabilityDraft(){
+ const source=availabilityScope()==='semester'?semesterRegistration(availabilityDoc,publishedTimetable?.data||state):weeklyRegistration(availabilityDoc,availabilityWeek(),publishedTimetable?.data||state);
+ return availabilityDrafts.get(availabilityDraftKey())||{...clone(source||{}),availableSlotIds:[...(source?.availableSlotIds||[])],busySlotIds:[...(source?.busySlotIds||[])]};
+}
+function rememberAvailabilityNote(){const input=document.querySelector('#avail-note');if(input){const draft=currentAvailabilityDraft(),note=(input.value||'').trim();if(note!==(draft.note||''))availabilityDrafts.set(availabilityDraftKey(),{...draft,note});}}
+function availabilityWarningText(items,s=workingDraft){return items.slice(0,12).map(x=>{const slot=s.timeSlots.find(t=>t.id===x.cell.timeSlotId);const cls=s.classes.find(c=>c.id===x.cell.classId);return `${x.name}: Thứ ${slot?.dayOfWeek}, ${slot?.session==='MORNING'?'sáng':'chiều'} tiết ${slot?.period}, ${cls?.name||''}`;}).join('\n')+(items.length>12?`\nVà ${items.length-12} tiết khác.`:'');}
+function confirmWeeklyPublication(){
+ const alerts=availabilityAlerts(workingDraft,availabilityRecords);
+ if(!alerts.week)return confirm('Chưa đặt ngày bắt đầu tuần nên chưa đối chiếu được đăng ký rảnh/bận. Vẫn tiếp tục công bố?');
+ if(availabilityLoadState!=='ready')return confirm('Chưa tải được đăng ký rảnh/bận của giáo viên. Vẫn tiếp tục công bố?');
+ if(!alerts.busy.length&&!alerts.unassigned.length)return true;
+ return confirm(`Nhắc trước khi công bố tuần ${weekCaption(alerts.week)}:\n`+(alerts.busy.length?`${alerts.busy.length} tiết trùng đăng ký bận:\n${availabilityWarningText(alerts.busy)}\n`:'')+(alerts.unassigned.length?'Đăng ký rảnh nhưng chưa có lịch: '+alerts.unassigned.map(x=>x.name).join(', ')+'\n':'')+'Tiếp tục công bố sau khi đã kiểm tra?');
+}
+function registrationViewWeek(s=workingDraft){return schedulerRegistrationWeek||timetableWeek(s)||todayWeek();}
+function moveRegistrationWeek(action,s=workingDraft){
+ const week=registrationViewWeek(s);
+ schedulerRegistrationWeek=action==='today'?todayWeek():action==='schedule'?'':addDays(week,action==='previous'?-7:7);
+}
+function renderAvailabilityAlerts(s=workingDraft){
+ if(!isSchedulerRole())return '';
+ const week=registrationViewWeek(s),scheduleWeek=timetableWeek(s),sameWeek=week===scheduleWeek;
+ // Another week's timetable is not available here: show registrations without claiming conflicts.
+ const alerts=availabilityAlerts(sameWeek?s:{...s,timetableCells:[]},availabilityRecords,week);
+ const controls=`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0">
+ <label>Tuần xem đăng ký <input id="registration-view-week" type="date" value="${esc(week)}" aria-label="Tuần xem đăng ký"></label>
+ <button type="button" data-action="registration-week-previous">← Tuần trước</button>
+ <button type="button" data-action="registration-week-today">Tuần này</button>
+ <button type="button" data-action="registration-week-next">Tuần sau →</button>
+ <button type="button" data-action="registration-week-schedule">Tuần đang xếp</button></div>`;
+ const explanation=sameWeek?'Đang đối chiếu với thời khóa biểu cùng tuần.':`Đang xem riêng đăng ký tuần này. Chưa đối chiếu với thời khóa biểu ${scheduleWeek?'tuần '+esc(weekCaption(scheduleWeek)):'chưa đặt ngày'}. Cảnh báo khi gán tiết và công bố vẫn theo tuần của thời khóa biểu đang xếp.`;
+ const summary=sameWeek?`<strong>${alerts.busy.length} tiết trùng lịch bận</strong> · <strong>${alerts.unassigned.length} giáo viên đăng ký rảnh chưa có lịch</strong>.`:'';
+ return `<section class="card" style="margin-bottom:12px"><strong>📅 Đăng ký giáo viên · ${esc(weekCaption(week))}</strong>${controls}<p class="muted">${explanation}</p>
+ ${availabilityLoadState!=='ready'?`<p>${availabilityLoadState==='error'?'Chưa tải được đăng ký. Hãy kiểm tra kết nối.':'Đang tải đăng ký từ Cloud…'}</p>`:`<p>${alerts.registered.length} giáo viên đã đăng ký tuần này. ${summary}</p>
+ ${alerts.registered.length?`<details><summary>Xem đăng ký${sameWeek?' và cảnh báo':''}</summary>
+ ${sameWeek?alerts.busy.map(x=>`<p>⚠️ ${esc(availabilityWarningText([x],s))}</p>`).join(''):''}
+ ${sameWeek?alerts.unassigned.map(x=>`<p>🔔 ${esc(x.name)}: đã đăng ký ${x.entry.availableSlotIds.length} tiết rảnh nhưng chưa được xếp tiết nào trong tuần.</p>`).join(''):''}
+ ${alerts.registered.map(x=>`<p><strong>${esc(x.name)}</strong> · ${x.source==='semester'?'Cố định học kỳ':'Đăng ký riêng tuần'} · ${x.entry.availableSlotIds?.length||0} tiết rảnh · ${x.entry.busySlotIds?.length||0} tiết bận${x.entry.note?' · '+esc(x.entry.note):''}<br><small>${[...(x.entry.busySlotIds||[]).map(id=>['Bận',id]),...(x.entry.availableSlotIds||[]).map(id=>['Rảnh',id])].map(([label,id])=>{const t=s.timeSlots.find(t=>t.id===id);return t?esc(`${label}: Thứ ${t.dayOfWeek}, ${t.session==='MORNING'?'sáng':'chiều'} tiết ${t.period}`):'';}).filter(Boolean).join(' · ')}</small></p>`).join('')}</details>`:''}`}
+ <small>Chọn tuần xem không thay đổi thông tin nhà trường hoặc lưu dữ liệu. Cập nhật định kỳ từ Cloud.</small></section>`;
+}function renderAvailabilityView() {
   const pData = publishedTimetable?.data || state;
   const teacherId = currentUserProfile?.teacherId || '';
   const myAssignedSlots = new Set(
-    allLessons(pData).filter(c => c.teacherId === teacherId).map(c => c.timeSlotId)
+    (availabilityScope()==='week'&&timetableWeek(pData)===availabilityWeek()?allLessons(pData):[]).filter(c => c.teacherId === teacherId).map(c => c.timeSlotId)
   );
 
-  const busySlots = new Set(availabilityDoc?.busySlotIds || []);
-  const availableSlots = new Set(availabilityDoc?.availableSlotIds || []);
+  const registration = currentAvailabilityDraft();
+  const busySlots = new Set(registration.busySlotIds || []);
+  const availableSlots = new Set(registration.availableSlotIds || []);
 
   let gridHtml = '';
   for (let period = 1; period <= 9; period++) {
@@ -1573,20 +1758,25 @@ function renderAvailabilityView() {
   return `
     <section class="card">
       <div class="card-title">
-        <h2>Đăng ký khung thời gian có thể dạy</h2>
+        <h2>Đăng ký tiết rảnh / bận ${availabilityScope()==='semester'?'cố định học kỳ':'điều chỉnh theo tuần'}</h2>
         <button class="primary" data-action="save-availability">Lưu thời gian đăng ký</button>
       </div>
       <p class="muted">Nhấp chuột vào từng ô để chuyển trạng thái: <strong>Rảnh (Có thể dạy)</strong> → <strong>Bận (Không dạy được)</strong> → <strong>Bỏ chọn</strong>. Thông tin này làm căn cứ để Người xếp lịch bố trí thời khóa biểu.</p>
 
       <div style="margin:16px 0;display:grid;grid-template-columns:1fr 2fr;gap:14px;">
-        <label>Khoảng ngày áp dụng
-          <input id="avail-daterange" value="${esc(availabilityDoc?.dateRange?.text || 'Học kỳ 1')}" placeholder="Ví dụ: Từ 01/10 đến 31/12">
+        ${isVisitingTeacher()?`<label>Phạm vi đăng ký <select id="availability-scope"><option value="semester" ${availabilityScope()==='semester'?'selected':''}>Cố định cả học kỳ</option><option value="week" ${availabilityScope()==='week'?'selected':''}>Thay đổi đột xuất một tuần</option></select><small>${esc(pData.school?.year||'')} · ${esc(pData.school?.term||'')}</small></label>`:''}
+        <label>Chọn ngày trong tuần muốn đăng ký
+          <input id="availability-week" ${availabilityScope()==='semester'?'disabled':''} type="date" value="${esc(availabilityWeek())}">
+          <small>Tuần ${esc(weekCaption(availabilityWeek()))}. Ngày được quy về thứ Hai.</small>
         </label>
         <label>Ghi chú cho Người xếp lịch
-          <input id="avail-note" value="${esc(availabilityDoc?.note || '')}" placeholder="Ví dụ: Chỉ dạy được sáng thứ Ba và chiều thứ Năm">
+          <input id="avail-note" value="${esc(registration.note || '')}" placeholder="Ví dụ: Chỉ dạy được sáng thứ Ba và chiều thứ Năm">
         </label>
       </div>
 
+      ${availabilityDoc && !availabilityDoc.weeks && (availabilityDoc.availableSlotIds?.length||availabilityDoc.busySlotIds?.length)?'<div class="notice">Đăng ký cũ chưa có tuần cụ thể vẫn được giữ lại, nhưng không tự áp dụng cho tuần này. Vui lòng đăng ký lại theo tuần.</div>':''}
+      ${isVisitingTeacher()?`<div class="notice">${availabilityScope()==='semester'?'Lịch cố định áp dụng cho các tuần của năm học/học kỳ trên. Thay đổi đột xuất một tuần được ưu tiên riêng tuần đó, không sửa lịch cố định.':(availabilityDoc?.weeks?.[availabilityWeek()]?'Tuần này đang có đăng ký riêng.':'Tuần này đang dùng lịch cố định học kỳ. Khi lưu, các lựa chọn sẽ áp dụng riêng tuần này.')}${availabilityScope()==='week'&&availabilityDoc?.weeks?.[availabilityWeek()]?'<button data-action="availability-use-semester">Dùng lại lịch cố định cho tuần này</button>':''}</div>`:''}
+      <p><strong>${availabilityScope()==='semester'?'Lịch cố định: '+esc(pData.school?.year||'')+' · '+esc(pData.school?.term||''):'Tuần đăng ký: '+esc(weekCaption(availabilityWeek()))}</strong>. ${availabilityScope()==='semester'?'Chọn khung giờ cố định, không phụ thuộc lịch dạy của một tuần cụ thể.':timetableWeek(pData)===availabilityWeek()?'Các tiết đã dạy hiển thị theo lịch công bố cùng tuần.':'Lịch công bố hiện tại thuộc tuần khác; không dùng để đánh dấu trùng cho tuần này.'}</p>
       <div class="availability-grid">
         <div style="font-weight:700;color:#184239;text-align:center;">Tiết / Giờ</div>
         <div style="font-weight:700;color:#184239;text-align:center;">Thứ Hai</div>
@@ -1607,7 +1797,8 @@ function renderTeacherRequestSubmission() {
   const pData = publishedTimetable?.data || state;
   const teacherId = currentUserProfile?.teacherId || '';
   const myLessons = getTeacherLessons(teacherId, pData);
-  const myRequests = requestsList.filter(r => r.teacherEmail === currentUser.email);
+  const userEmail = (currentUser?.email || '').toLowerCase().trim();
+  const myRequests = requestsList.filter(r => (r.teacherEmail || '').toLowerCase().trim() === userEmail);
 
   return `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
@@ -1615,7 +1806,7 @@ function renderTeacherRequestSubmission() {
         <div class="card-title">
           <h2>Gửi yêu cầu điều chỉnh thời khóa biểu</h2>
         </div>
-        <p class="muted">Nếu có việc đột xuất hoặc lý do chính đáng cần điều chỉnh tiết dạy, vui lòng gửi yêu cầu để Người xếp lịch xem xét.</p>
+        <p class="muted">Nếu có việc đột xuất hoặc lý do chính đáng cần điều chỉnh tiết dạy, vui lòng gửi yêu cầu để Người xếp lịch và Quản trị viên xem xét.</p>
 
         <form id="request-adjustment-form">
           <label>Chọn tiết giảng dạy liên quan
@@ -1629,6 +1820,7 @@ function renderTeacherRequestSubmission() {
                 </option>`
                 )
                 .join('')}
+              <option value="other::other::other">Tiết khác / Đề nghị điều chỉnh chung</option>
             </select>
           </label>
           <label>Lý do đề nghị đổi
@@ -1650,19 +1842,30 @@ function renderTeacherRequestSubmission() {
         ${
           myRequests.length
             ? myRequests.map(r => {
+                const statusStr = (r.status || 'PENDING').toUpperCase();
                 const statusLabels = {
                   PENDING: '<span class="req-status pending">Chờ xử lý</span>',
                   APPROVED: '<span class="req-status approved">Đã chấp thuận</span>',
                   REJECTED: '<span class="req-status rejected">Không chấp thuận</span>'
                 };
+                const statusBadge = statusLabels[statusStr] || `<span class="req-status ${(r.status || 'pending').toLowerCase()}">${esc(r.status || 'Chờ xử lý')}</span>`;
+                const slot = (pData.timeSlots || []).find(s => s.id === r.timeSlotId);
+                const cls = (pData.classes || []).find(c => c.id === r.classId);
+                const subj = (pData.subjects || []).find(s => s.id === r.subjectId);
+                const lessonDesc = (slot || cls || subj)
+                  ? `Thứ ${slot?.dayOfWeek || '?'} · Tiết ${slot?.period || '?'} (${slot?.session === 'MORNING' ? 'Sáng' : 'Chiều'}) · Lớp ${esc(cls?.name || '')} (${esc(subj?.name || '')})`
+                  : (r.lessonSummary || 'Tiết giảng dạy liên quan');
                 return `
                 <div class="request-card">
                   <div class="req-header">
                     <strong>Yêu cầu lúc ${esc(fmt(r.createdAt))}</strong>
-                    ${statusLabels[r.status] || r.status}
+                    ${statusBadge}
                   </div>
                   <div class="req-body">
-                    <strong>Lý do:</strong> ${esc(r.reason)}<br>
+                    <div style="font-size:12px;color:#184239;font-weight:600;margin-bottom:6px;background:#eef7f2;padding:4px 8px;border-radius:4px;">
+                      📅 ${esc(lessonDesc)}
+                    </div>
+                    <strong>Lý do:</strong> ${esc(r.reason || '—')}<br>
                     <strong>Đề xuất:</strong> ${esc(r.proposal || '—')}
                   </div>
                   ${
@@ -1670,6 +1873,15 @@ function renderTeacherRequestSubmission() {
                       ? `
                     <div class="req-response">
                       <strong>Phản hồi từ Người xếp lịch:</strong><br>${esc(r.responseNote)}
+                    </div>
+                  `
+                      : ''
+                  }
+                  ${
+                    statusStr === 'PENDING'
+                      ? `
+                    <div style="margin-top:8px;text-align:right;">
+                      <button type="button" data-action="cancel-request" data-id="${esc(r.id)}" class="danger-link" style="font-size:11px;padding:3px 8px;border:1px solid #f87171;border-radius:4px;background:#fff5f5;cursor:pointer;">✕ Hủy yêu cầu này</button>
                     </div>
                   `
                       : ''
@@ -1693,7 +1905,7 @@ function renderSchedulerTeacherRequests() {
 
   return `
     <div style="display:flex;flex-direction:column;gap:20px;">
-      <section class="card">
+      ${renderAvailabilityAlerts()}<section class="card">
         <div class="card-title">
           <h2>Yêu cầu điều chỉnh đang chờ xử lý (${pendingRequests.length})</h2>
         </div>
@@ -1703,14 +1915,19 @@ function renderSchedulerTeacherRequests() {
                 const slot = (workingDraft.timeSlots || []).find(s => s.id === r.timeSlotId);
                 const cls = (workingDraft.classes || []).find(c => c.id === r.classId);
                 const subj = (workingDraft.subjects || []).find(s => s.id === r.subjectId);
+                const lessonText = (slot || cls || subj)
+                  ? `Thứ ${slot?.dayOfWeek || '?'} · Tiết ${slot?.period || '?'} (${slot?.session === 'MORNING' ? 'Sáng' : 'Chiều'}) · Lớp ${esc(cls?.name || '')} (${esc(subj?.name || '')})`
+                  : (r.lessonSummary || 'Tiết giảng dạy liên quan');
                 return `
                 <div class="request-card" style="border-left:4px solid #f59e0b;">
                   <div class="req-header">
-                    <strong>Giáo viên: ${esc(r.teacherEmail)}</strong>
+                    <strong>Giáo viên: ${esc(r.teacherName ? `${r.teacherName} (${r.teacherEmail})` : r.teacherEmail)}</strong>
                     <span class="req-status pending">Chờ xử lý</span>
                   </div>
                   <div class="req-body">
-                    Tiết học: Thứ ${slot?.dayOfWeek || ''} · Tiết ${slot?.period || ''} (${slot?.session === 'MORNING' ? 'Sáng' : 'Chiều'}) · Lớp ${esc(cls?.name || '')} (${esc(subj?.name || '')})<br>
+                    <div style="font-size:12px;color:#184239;font-weight:600;margin-bottom:6px;background:#eef7f2;padding:4px 8px;border-radius:4px;">
+                      📅 Tiết học: ${esc(lessonText)}
+                    </div>
                     <strong>Lý do:</strong> ${esc(r.reason)}<br>
                     <strong>Đề xuất:</strong> ${esc(r.proposal || 'Không có')}
                   </div>
@@ -1730,18 +1947,30 @@ function renderSchedulerTeacherRequests() {
           <h2>Lịch sử xử lý yêu cầu (${pastRequests.length})</h2>
         </div>
         ${
-          pastRequests.slice(0, 10).map(r => `
-            <div class="request-card" style="opacity:0.85;">
+          pastRequests.slice(0, 15).map(r => {
+            const slot = (workingDraft.timeSlots || []).find(s => s.id === r.timeSlotId);
+            const cls = (workingDraft.classes || []).find(c => c.id === r.classId);
+            const subj = (workingDraft.subjects || []).find(s => s.id === r.subjectId);
+            const lessonText = (slot || cls || subj)
+              ? `Thứ ${slot?.dayOfWeek || '?'} · Tiết ${slot?.period || '?'} · Lớp ${esc(cls?.name || '')} (${esc(subj?.name || '')})`
+              : (r.lessonSummary || '');
+            return `
+            <div class="request-card" style="opacity:0.9;">
               <div class="req-header">
-                <span>${esc(r.teacherEmail)} · ${esc(fmt(r.updatedAt || r.createdAt))}</span>
+                <span><strong>${esc(r.teacherName || r.teacherEmail)}</strong> · <small>${esc(fmt(r.updatedAt || r.createdAt))}</small></span>
                 <span class="req-status ${r.status.toLowerCase()}">${r.status === 'APPROVED' ? 'Đã chấp thuận' : 'Không chấp thuận'}</span>
               </div>
               <div class="req-body">
+                ${lessonText ? `<div style="font-size:12px;color:#555;margin-bottom:4px;">📅 ${esc(lessonText)}</div>` : ''}
                 <strong>Lý do:</strong> ${esc(r.reason)}<br>
                 <strong>Phản hồi:</strong> ${esc(r.responseNote || '—')}
               </div>
+              <div style="margin-top:8px;text-align:right;">
+                <button data-action="delete-request" data-id="${esc(r.id)}" class="danger-link" style="font-size:11px;padding:2px 6px;cursor:pointer;">Xóa bản ghi</button>
+              </div>
             </div>
-          `).join('')
+          `;
+          }).join('')
         }
       </section>
     </div>
@@ -1772,8 +2001,8 @@ function renderPendingProfilesPage(pendingProfiles) {
               </div>
 
               <div class="pending-details">
-                <strong>Môn giảng dạy tự khai:</strong> ${esc(p.selfDeclared?.subjects?.join(', ') || 'Chưa khai báo')}<br>
-                <strong>Lớp chủ nhiệm tự khai:</strong> ${esc(p.selfDeclared?.homeroomClassId ? text(state.classes || [], p.selfDeclared.homeroomClassId) : 'Không chủ nhiệm')}<br>
+                <strong>Môn giảng dạy:</strong> ${esc(p.selfDeclared?.subjects?.join(', ') || 'Chưa khai báo')}<br>
+                <strong>Lớp chủ nhiệm:</strong> ${esc(p.selfDeclared?.homeroomClassId ? text(state.classes || [], p.selfDeclared.homeroomClassId) : 'Không chủ nhiệm')}<br>
                 <strong>Ghi chú giáo viên:</strong> ${esc(p.selfDeclared?.note || 'Không có')}
               </div>
 
@@ -1795,7 +2024,7 @@ function renderPendingProfilesPage(pendingProfiles) {
 function renderMyProfileView() {
   const teacherId = currentUserProfile?.teacherId || '';
   const teacherObj = (state.teachers || []).find(t => t.id === teacherId);
-  const homeroomNames = (currentUserProfile?.homeroomClassIds || []).map(id => text(state.classes || [], id)).join(', ');
+  const homeroomNames = officialHomeroomClassIds().map(id => text(state.classes || [], id)).join(', ');
 
   return `
     <div style="max-width:700px;margin:auto;">
@@ -1811,12 +2040,12 @@ function renderMyProfileView() {
           <dt>Mã GV chính thức:</dt><dd>${teacherObj ? `${esc(teacherObj.fullName)} (Mã: ${esc(teacherObj.code)})` : '<span style="color:#ba6a50;">Chưa liên kết</span>'}</dd>
           <dt>Loại giáo viên:</dt><dd>${currentUserProfile?.isVisiting ? '<span style="color:#d97706;font-weight:700;">Giáo viên thỉnh giảng</span>' : 'Giáo viên cơ hữu'}</dd>
           <dt>Lớp chủ nhiệm:</dt><dd>${homeroomNames || 'Không chủ nhiệm'}</dd>
-          <dt>Môn tự khai:</dt><dd>${esc(currentUserProfile?.selfDeclared?.subjects?.join(', ') || '—')}</dd>
+          <dt>Môn giảng dạy:</dt><dd>${esc(currentUserProfile?.selfDeclared?.subjects?.join(', ') || '—')}</dd>
           <dt>Trạng thái quyền:</dt><dd><span class="status-pill active">Đã xác nhận & Hoạt động</span></dd>
         </dl>
 
         <div style="margin-top:20px;padding-top:14px;border-top:1px solid #edf0e8;">
-          <button data-action="edit-self-declared">Cập nhật môn tự khai / Ghi chú</button>
+          <button data-action="edit-self-declared">Cập nhật môn giảng dạy / Ghi chú</button>
         </div>
       </section>
     </div>
@@ -1844,26 +2073,49 @@ function renderSchoolPage() {
 // ----------------------------------------------------
 // Core Matrix Section (Ma trận phân công & Thời khóa biểu)
 // ----------------------------------------------------
-function renderGrade11Parts(s,cls,slot,day,cell,isReadonly) {
+function registrationDetail(registration,slot){
+ if(!registration)return '';
+ const scope=registration.source==='semester'?'cố định học kỳ':'riêng tuần '+weekCaption(registration.week);
+ const when=slot?` · Thứ ${slot.dayOfWeek}, ${slot.session==='MORNING'?'sáng':'chiều'} tiết ${slot.period}`:'';
+ return (registration.status==='busy'?'Đã đăng ký bận':'Đã đăng ký rảnh')+' · '+scope+when+(registration.note?' · Ghi chú: '+registration.note:'');
+}
+function snapshotTimetablePopover(){
+ const root=document.querySelector('#active-matrix-popover-root');if(!root?.dataset.timetableClass)return null;
+ return {classId:root.dataset.timetableClass,timeSlotId:root.dataset.timetableSlot,day:Number(root.dataset.timetableDay),period:Number(root.dataset.timetablePeriod),query:root.querySelector('#timetable-suggestion-search')?.value||'',scroll:root.querySelector('#timetable-suggestions-list')?.scrollTop||0,focused:document.activeElement?.id==='timetable-suggestion-search'};
+}
+function restoreTimetablePopover(saved){
+ if(!saved)return;
+ const anchorElement=document.querySelector(`.matrix [data-cell-class="${CSS.escape(saved.classId)}"][data-cell-slot="${CSS.escape(saved.timeSlotId)}"]`);
+ if(!anchorElement){closePopover();return;}
+ openTimetableCellPopover({...saved,anchorElement});
+ const root=document.querySelector('#active-matrix-popover-root'),input=root?.querySelector('#timetable-suggestion-search');if(input){input.value=saved.query;input.dispatchEvent(new Event('input',{bubbles:true}));if(saved.focused)input.focus();}
+ const list=root?.querySelector('#timetable-suggestions-list');if(list)list.scrollTop=saved.scroll;
+}
+function renderGrade11Parts(s,cls,slot,day,cell,isReadonly,busyIndex) {
  const lessons=cellLessons(s,cell);
  return '<div class="grade11-parallel-parts" style="display:flex;width:100%;height:100%;gap:0;">'+['TN','XH'].map((track,i)=>{
   const lesson=lessons.find(l=>l.track===track),subject=s.subjects.find(x=>x.id===lesson?.subjectId),teacher=text(s.teachers||[],lesson?.teacherId,'fullName');
   const teacherColor = lesson?.teacherId ? getTeacherColor(s, lesson.teacherId) : (subject ? subject.color : '');
-  const label=track+': '+(subject?.name||'Chưa xếp môn')+(teacher?' — '+teacher:'');
-  return `<button type="button" data-cell-drop="true" data-cell-class="${esc(cls.id)}" data-cell-slot="${esc(slot.id)}" data-cell-day="${day}" data-cell-period="${slot.period}" data-cell-track="${track}" aria-label="${esc(cls.name+', thứ '+day+', '+(slot.session==='MORNING'?'sáng':'chiều')+' tiết '+slot.period+', '+label)}" title="${esc(label)}" style="flex:1 1 0;width:50%;min-width:0;border-radius:0;${i?'border-left:1px solid var(--border);':''}${teacherColor?'--subject:'+esc(teacherColor)+';':''}" ${isReadonly?'disabled':''}>
+  const registration=registrationForSlot(busyIndex,lesson?.teacherId,slot.id),registeredBusy=registration?.status==='busy';
+  const label=track+': '+(subject?.name||'Chưa xếp môn')+(teacher?' — '+teacher:'')+(registeredBusy?' · '+registrationDetail(registration,slot):'');
+  return `<button type="button" class="${registeredBusy?'grade11-availability-busy':''}" data-cell-drop="true" data-cell-class="${esc(cls.id)}" data-cell-slot="${esc(slot.id)}" data-cell-day="${day}" data-cell-period="${slot.period}" data-cell-track="${track}" aria-label="${esc(cls.name+', thứ '+day+', '+(slot.session==='MORNING'?'sáng':'chiều')+' tiết '+slot.period+', '+label)}" title="${esc(label)}" style="flex:1 1 0;width:50%;min-width:0;border-radius:0;${i?'border-left:1px solid var(--border);':''}${teacherColor?'--subject:'+esc(teacherColor)+';':''}" ${isReadonly?'disabled':''}>
    ${lesson?`<span class="subject-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;width:100%;">${esc(subject?.name||'')}${cell.locked?' <span class="lock" title="Đã khóa">🔒</span>':''}</span><span class="teacher-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:3px;">${lesson.teacherId ? `<i style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${teacherColor};flex-shrink:0;"></i>` : ''}${esc(teacher||'Chưa chọn giáo viên')}</span>`:'<span class="empty-mark">'+track+' ＋</span>'}
-  </button>`;
+  ${registeredBusy?'<span class="busy-cell-mark" aria-label="Giáo viên đã đăng ký bận">⚠ BẬN</span>':''}</button>`;
  }).join('')+'</div>';
 }
 
 function renderMatrixSection(s) {
   const isTeacherWorkspace = (currentWorkspace !== 'ADMIN' && currentWorkspace !== 'SCHEDULER') || !isSchedulerRole() || view === 'published_all';
+  if(isTeacherWorkspace&&!publishedTimetable?.isPublished)return '<div class="card"><h2>Chưa có thời khóa biểu hiện hành</h2><p>Lịch mới sẽ hiển thị sau khi nhà trường công bố.</p></div>';
   const effectiveMatrixMode = isTeacherWorkspace ? 'timetable' : matrixViewMode;
   if (isTeacherWorkspace && publishedTimetable?.isPublished && publishedTimetable?.data) {
     s = normalizeState(publishedTimetable.data);
   }
   const classes = (s.classes || []).filter(c => !grade || (grade === 'THCS' ? c.grade <= 9 : grade === 'THPT' ? c.grade >= 10 : String(c.grade) === grade));
   const isReadonly = isTeacherWorkspace || !canEditWorking();
+  const busyIndex=registrationSlotIndex(s,availabilityRecords);
+  const busyScheduledLessons=availabilityAlerts(s,availabilityRecords).busy;
+  const busyLessonCount=busyScheduledLessons.length;
   const targetTeacherId = (brushMode === 'brush' && brushTeacherId && !isTeacherWorkspace) ? brushTeacherId : (selectedTeacherHighlight || teacher);
   const targetHighlightId = targetTeacherId;
   const targetTeacherName = targetTeacherId ? text(s.teachers || [], targetTeacherId, 'fullName') : '';
@@ -1885,7 +2137,7 @@ function renderMatrixSection(s) {
             <strong>${esc(cls.name)}</strong>
             <span>${cls.grade < 10 ? 'THCS' : 'THPT'} · Khối ${cls.grade}</span>
             <div>
-              <span>GVCN: ${cls.homeroomTeacherId ? esc(text(s.teachers || [], cls.homeroomTeacherId, 'fullName')) : '<em style="color:#94a69b;">Chưa có</em>'}</span>
+              <span>GVCN: ${homeroomTeacherIds(cls).length ? esc(homeroomTeacherIds(cls).map(id=>text(s.teachers || [],id,'fullName')).join(' · ')) : '<em style="color:#94a69b;">Chưa có</em>'}</span>
             </div>
           </th>`
           )
@@ -1914,13 +2166,16 @@ function renderMatrixSection(s) {
         const isDimmed = hasTarget && (!assignedTeacher || assignedTeacher.id !== targetHighlightId);
 
         if (assignedTeacher) {
+          const assignmentBusy=busyScheduledLessons.filter(x=>x.teacherId===assignedTeacher.id&&x.cell.classId===cls.id&&x.cell.subjectId===subj.id);
+          const assignmentBusyTitle=assignmentBusy.map(x=>registrationDetail({...x.entry,status:'busy',source:x.source,week:timetableWeek(s)},s.timeSlots.find(t=>t.id===x.cell.timeSlotId))).join('\n');
           cellsHtml += `
-            <td class="lesson filled ${isHighlighted ? 'cell-highlighted' : ''} ${isDimmed ? 'cell-dimmed' : ''}" style="--subject:${esc(subj.color)};position:relative;">
+            <td class="lesson filled ${isHighlighted ? 'cell-highlighted' : ''} ${isDimmed ? 'cell-dimmed' : ''} ${assignmentBusy.length?'availability-busy-cell assignment-availability-busy':''}" title="${esc(assignmentBusyTitle)}" style="--subject:${esc(subj.color)};position:relative;">
               <button type="button" data-assign-cell="true" data-assign-class="${esc(cls.id)}" data-assign-subject="${esc(subj.id)}" ${isReadonly ? 'disabled' : ''} aria-label="${esc(`${cls.name}, ${subj.name}: ${assignedTeacher.fullName}`)}">
                 <span class="subject-name" style="font-weight:600;font-size:9px;color:#184239;">${esc(subj.name)}</span>
                 <strong class="teacher-name" style="font-size:10px;color:#184239;display:block;margin-top:2px;">${esc(assignedTeacher.fullName)}</strong>
                 <span class="cell-note" style="font-size:8px;color:#677e71;display:inline-block;background:#eef3eb;padding:1px 5px;border-radius:4px;margin-top:2px;">${esc(assignedTeacher.code)}</span>
               </button>
+              ${assignmentBusy.length?'<span class="busy-cell-mark">⚠ BẬN</span>':''}
               ${!isReadonly ? `
                 <button type="button" class="cell-quick-unassign-btn" data-action="popover-unassign" data-class="${esc(cls.id)}" data-subject="${esc(subj.id)}" title="Xóa phân công: ${esc(assignedTeacher.fullName)}" aria-label="Xóa phân công">✕</button>
               ` : ''}
@@ -1970,7 +2225,7 @@ function renderMatrixSection(s) {
             <strong>${esc(cls.name)}</strong>
             <span>${cls.grade < 10 ? 'THCS' : 'THPT'} · Khối ${cls.grade}</span>
             <div>
-              <span>GVCN: ${cls.homeroomTeacherId ? esc(text(s.teachers || [], cls.homeroomTeacherId, 'fullName')) : '<em style="color:#94a69b;">Chưa có</em>'}</span>
+              <span>GVCN: ${homeroomTeacherIds(cls).length ? esc(homeroomTeacherIds(cls).map(id=>text(s.teachers || [],id,'fullName')).join(' · ')) : '<em style="color:#94a69b;">Chưa có</em>'}</span>
             </div>
           </th>`
           )
@@ -1993,20 +2248,22 @@ function renderMatrixSection(s) {
           const subject = cell ? s.subjects?.find(x => x.id === cell.subjectId) : null;
           const assignedTeacherId = cell ? (cell.teacherId || cellLessons(s, cell)[0]?.teacherId) : '';
           const teacherText = cell ? cellLessons(s,cell).map(l=>text(s.teachers||[],l.teacherId,'fullName')).join(' / ') : '';
+          const busyTeachers=cellLessons(s,cell).map(l=>({name:text(s.teachers||[],l.teacherId,'fullName'),registration:registrationForSlot(busyIndex,l.teacherId,slot.id)})).filter(x=>x.registration?.status==='busy');
+          const busyTitle=busyTeachers.map(x=>x.name+': '+registrationDetail(x.registration,slot)).join('\n');
           const teacherColor = assignedTeacherId ? getTeacherColor(s, assignedTeacherId) : (subject ? subject.color : '');
           const hasTarget = !!targetHighlightId;
           const isHighlighted = hasTarget && cellLessons(s,cell).some(l=>l.teacherId===targetHighlightId);
           const isDimmed = hasTarget && !cellLessons(s,cell).some(l=>l.teacherId===targetHighlightId);
           const matchQuery = !query || `${subject?.name || ''} ${teacherText} ${cls.name}`.toLocaleLowerCase('vi').includes(query.toLocaleLowerCase('vi'));
 
-          rows += `<td class="lesson ${cell ? 'filled' : 'empty'} ${isHighlighted ? 'cell-highlighted' : ''} ${isDimmed || !matchQuery ? 'cell-dimmed' : ''} ${cell && conflictIds.has(cell.id) ? 'conflict' : ''}"
+          rows += `<td class="lesson ${cell ? 'filled' : 'empty'} ${isHighlighted ? 'cell-highlighted' : ''} ${isDimmed || !matchQuery ? 'cell-dimmed' : ''} ${cell && conflictIds.has(cell.id) ? 'conflict' : ''} ${busyTeachers.length?'availability-busy-cell':''}" title="${esc(busyTitle)}"
                        data-cell-drop="true"
                        data-cell-class="${esc(cls.id)}"
                        data-cell-slot="${esc(slot.id)}"
                        data-cell-day="${day}"
                        data-cell-period="${slot.period}"
                        style="${teacherColor ? '--subject:' + esc(teacherColor) + ';' : ''}">
-            ${cls.grade===11 && (!cell || cellLessons(s,cell).some(l=>['TN','XH'].includes(l.track))) ? renderGrade11Parts(s,cls,slot,day,cell,isReadonly) : `<button data-cell-class="${esc(cls.id)}"
+            ${cls.grade===11 && (!cell || cellLessons(s,cell).some(l=>['TN','XH'].includes(l.track))) ? renderGrade11Parts(s,cls,slot,day,cell,isReadonly,busyIndex) : `<button data-cell-class="${esc(cls.id)}"
                     data-cell-slot="${esc(slot.id)}"
                     data-cell-day="${day}"
                     data-cell-period="${slot.period}"
@@ -2014,6 +2271,7 @@ function renderMatrixSection(s) {
                     ${isReadonly ? 'disabled' : ''}>
               ${cell?.parallelLessons?.length ? cellLessons(s,cell).map((l,i)=>`<span class="${i?'teacher-name':'subject-name'}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;max-width:100%;" title="${esc(l.track+': '+text(s.subjects,l.subjectId)+' — '+text(s.teachers,l.teacherId,'fullName'))}">${esc(l.track)}: ${esc(text(s.subjects,l.subjectId))} — ${esc(text(s.teachers,l.teacherId,'fullName')||'Chưa chọn giáo viên')}</span>`).join('') : cell ? `<span class="subject-name">${esc(subject?.name)} ${cell.locked ? (!isReadonly ? `<span class="lock-indicator" data-action="quick-toggle-cell-lock" data-class="${esc(cls.id)}" data-slot="${esc(slot.id)}" title="Tiết học đang khóa cố định. Nhấp để mở khóa">🔒</span>` : '<span class="lock" title="Đã khóa">🔒</span>') : ''}</span><span class="teacher-name" style="display:inline-flex;align-items:center;justify-content:center;gap:3px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${assignedTeacherId ? `<i style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${teacherColor};flex-shrink:0;"></i>` : ''}${cell.teacherId ? esc(teacherText) : 'Chưa chọn giáo viên'}</span>${cell.note ? `<span class="cell-note" title="${esc(cell.note)}">${esc(cell.note)}</span>` : ''}` : '<span class="empty-mark">＋</span>'}
             </button>`}
+            ${busyTeachers.length?'<span class="busy-cell-mark" aria-label="Giáo viên đã đăng ký bận">⚠ BẬN</span>':''}
           </td>`;
         }
         rows += '</tr>';
@@ -2022,10 +2280,13 @@ function renderMatrixSection(s) {
     tableBodyHtml = rows;
   }
 
+  const focusActive = effectiveMatrixMode === 'timetable' && !isTeacherWorkspace && !isReadonly && matrixFocusEnabled;
+  const dailyRulesNotice = effectiveMatrixMode === 'timetable' && !isTeacherWorkspace ? '<div class="notice">Quy định khối 6–9: mỗi lớp, mỗi ngày (cả sáng và chiều) chỉ học một phân môn KHTN (Lí/Hóa/Sinh) và một phân môn LS-ĐL (Sử/Địa). Có thể xếp nhiều tiết cùng phân môn trong một buổi. Toàn trường: cùng lớp không xếp một môn ở cả sáng và chiều cùng ngày, ngoại trừ tiết đôi nối tiết 5 buổi sáng và tiết 1 buổi chiều; AI-Robotics mỗi Thứ/Buổi/Tiết chỉ dành cho một lớp, kể cả khác giáo viên.</div>' : '';
   const trayHtml = (!isTeacherWorkspace && effectiveMatrixMode === 'timetable') ? renderAssignmentTray(s, classes) : '';
 
   return `
-    <section class="matrix-panel ${brushMode !== 'none' && !isTeacherWorkspace ? 'brush-active' : ''}">
+    ${effectiveMatrixMode === 'timetable' ? renderAvailabilityAlerts(s) : ''}${dailyRulesNotice}<section class="matrix-panel ${focusActive ? 'schedule-focus' : ''} ${matrixFocusTools ? 'focus-tools-open' : ''} ${brushMode !== 'none' && !isTeacherWorkspace ? 'brush-active' : ''}">
+      ${focusActive ? `<div class="schedule-focus-bar"><strong>▦ Không gian xếp thời khóa biểu</strong><span data-focus-sync role="status">${esc(syncMessage)}</span>${busyLessonCount?`<strong class="focus-busy-count">⚠ ${busyLessonCount} tiết có GV đăng ký bận</strong>`:''}<div><button type="button" data-action="schedule-focus-tools">${matrixFocusTools?'Ẩn công cụ':'Công cụ & lọc lớp'}</button><button type="button" data-action="fullscreen" title="Mở rộng cả trình duyệt nếu được hỗ trợ">⛶ Toàn màn hình</button><button type="button" data-action="schedule-focus-exit">↙ Thu nhỏ / Xem cảnh báo</button></div></div>` : ''}
       <div class="panel-toolbar">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           ${isTeacherWorkspace ? `
@@ -2102,7 +2363,7 @@ function renderMatrixSection(s) {
           <select id="teacher-filter">${selectOptions(s.teachers || [], teacher, 'fullName', 'Tất cả giáo viên')}</select>
           <label class="search"><span>⌕</span><input id="search" placeholder="Tìm môn, giáo viên, lớp…" value="${esc(query)}" aria-label="Tìm trong ma trận"></label>
           <button data-action="density" class="icon-button" title="Đổi độ rộng cột">${compact ? '↔' : '↦↤'}</button>
-          <button data-action="fullscreen" class="icon-button" title="Toàn màn hình">⛶</button>
+          ${effectiveMatrixMode==='timetable'&&!isReadonly?'<button data-action="schedule-focus-enter" class="icon-button" title="Phóng to bảng xếp lịch">⛶ Phóng to bảng</button>':'<button data-action="fullscreen" class="icon-button" title="Toàn màn hình">⛶</button>'}
         </div>
       </div>
 
@@ -2249,13 +2510,13 @@ function catalog() {
               ${state[kind]
                 .map(item => {
                   if (kind === 'classes') {
-                    const hrTeacher = item.homeroomTeacherId ? (state.teachers || []).find(t => t.id === item.homeroomTeacherId) : null;
+                    const hrTeacher = homeroomTeacherIds(item).map(id=>(state.teachers || []).find(t=>t.id===id)?.fullName).filter(Boolean).join(' · ');
                     return `
                       <div class="catalog-row">
                         <div>
                           <strong>${esc(item.name)}</strong>
                           <small>${esc(item.code)} · Khối ${item.grade}</small>
-                          <div class="catalog-subinfo">GVCN: ${hrTeacher ? esc(hrTeacher.fullName) : '<span class="text-muted">Chưa có GVCN</span>'}</div>
+                          <div class="catalog-subinfo">GVCN: ${hrTeacher ? esc(typeof hrTeacher === "string" ? hrTeacher : hrTeacher.fullName) : '<span class="text-muted">Chưa có GVCN</span>'}</div>
                         </div>
                         <button data-edit="classes" data-id="${esc(item.id)}" aria-label="Sửa ${esc(item.name)}">Sửa</button>
                         <button data-delete="classes" data-id="${esc(item.id)}" class="danger-link" aria-label="Xóa ${esc(item.name)}">×</button>
@@ -2263,7 +2524,7 @@ function catalog() {
                     `;
                   }
                   if (kind === 'teachers') {
-                    const hrClasses = (state.classes || []).filter(c => c.homeroomTeacherId === item.id);
+                    const hrClasses = (state.classes || []).filter(c => homeroomTeacherIds(c).includes(item.id));
                     const assignCount = Array.isArray(item.assignments) ? item.assignments.length : 0;
                     const isHighlighted = selectedTeacherHighlight === item.id || (brushMode === 'brush' && brushTeacherId === item.id);
                     return `
@@ -2300,6 +2561,93 @@ function catalog() {
         </section>`
         )
         .join('')}
+    </div>
+  `;
+}
+
+function renderPublishAndDataPage() {
+  const conflicts = findConflicts(workingDraft);
+  const versionCount = workingDraft.versions?.length || 0;
+  const isPublished = Boolean(publishedTimetable?.isPublished);
+
+  const statsHtml = `
+    <div class="stats publish-stats" style="margin-bottom:16px;">
+      <div class="${conflicts.length ? 'warning-stat' : ''} ${publishAndDataTab === 'conflicts' ? 'active-stat-card' : ''}" style="cursor:pointer;" data-publish-tab="conflicts" title="Xem danh sách xung đột">
+        <span class="stat-icon" style="${conflicts.length ? 'background:#fee2e2;color:#b91c1c;' : 'background:#dcfce7;color:#15803d;'}">
+          ${conflicts.length ? '!' : '✓'}
+        </span>
+        <div class="stat-content">
+          <strong style="${conflicts.length ? 'color:#b91c1c;' : 'color:#15803d;'}">
+            ${conflicts.length ? `${conflicts.length} lỗi trùng` : '0 xung đột'}
+          </strong>
+          <span>${conflicts.length ? 'Cần kiểm tra' : 'Lịch hợp lệ ✓'}</span>
+        </div>
+      </div>
+
+      <div class="${publishAndDataTab === 'versions' ? 'active-stat-card' : ''}" style="cursor:pointer;" data-publish-tab="versions" title="Xem tình trạng bản chốt Cloud">
+        <span class="stat-icon" style="background:#e0f2fe;color:#0284c7;">▱</span>
+        <div class="stat-content">
+          <strong style="color:#0369a1;">${isPublished ? 'Đang công bố ✓' : 'Chưa công bố'}</strong>
+          <span>${isPublished ? esc(fmt(publishedTimetable.publishedAt)) : 'Bản nháp đang xếp'}</span>
+        </div>
+      </div>
+
+      <div class="${publishAndDataTab === 'versions' ? 'active-stat-card' : ''}" style="cursor:pointer;" data-publish-tab="versions" title="Xem các phiên bản đã lưu">
+        <span class="stat-icon" style="background:#ede9fe;color:#7c3aed;">📑</span>
+        <div class="stat-content">
+          <strong style="color:#6d28d9;">${versionCount} phiên bản</strong>
+          <span>${workingDraft.timetableCells?.length || 0} ô lịch (Rev: ${currentRevision})</span>
+        </div>
+      </div>
+
+      <div class="${publishAndDataTab === 'backup' ? 'active-stat-card' : ''}" style="cursor:pointer;" data-publish-tab="backup" title="Sao lưu và xuất dữ liệu">
+        <span class="stat-icon" style="background:#fef3c7;color:#d97706;">💾</span>
+        <div class="stat-content">
+          <strong style="color:#b45309;">Sao lưu & Tệp</strong>
+          <span>JSON, CSV & Drive</span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const tabsHtml = `
+    <div class="tabs-nav" style="margin-bottom:20px;">
+      <button data-publish-tab="all" class="${publishAndDataTab === 'all' ? 'active' : ''}">📑 Xem tất cả</button>
+      <button data-publish-tab="conflicts" class="${publishAndDataTab === 'conflicts' ? 'active' : ''}">
+        ◎ Kiểm tra xung đột ${conflicts.length ? `<b class="badge" style="background:#ef4444;color:#fff;margin-left:4px;">${conflicts.length}</b>` : '<b class="badge" style="background:#dcfce7;color:#166534;margin-left:4px;">✓ 0</b>'}
+      </button>
+      <button data-publish-tab="versions" class="${publishAndDataTab === 'versions' ? 'active' : ''}">
+        ▱ Phiên bản & Công bố ${isPublished ? '<span style="color:#16a34a;margin-left:4px;font-weight:700;">(Đã chốt)</span>' : ''}
+      </button>
+      <button data-publish-tab="backup" class="${publishAndDataTab === 'backup' ? 'active' : ''}">
+        💾 Sao lưu & Khôi phục
+      </button>
+    </div>
+  `;
+
+  let contentHtml = '';
+
+  if (publishAndDataTab === 'all') {
+    contentHtml = `
+      <div style="display:flex;flex-direction:column;gap:20px;">
+        ${conflictPage()}
+        ${versionsPage()}
+        ${settings()}
+      </div>
+    `;
+  } else if (publishAndDataTab === 'conflicts') {
+    contentHtml = conflictPage();
+  } else if (publishAndDataTab === 'versions') {
+    contentHtml = versionsPage();
+  } else if (publishAndDataTab === 'backup') {
+    contentHtml = settings();
+  }
+
+  return `
+    <div class="publish-and-data-container">
+      ${statsHtml}
+      ${tabsHtml}
+      ${contentHtml}
     </div>
   `;
 }
@@ -2490,7 +2838,189 @@ function settings() {
 // ----------------------------------------------------
 // Main Master Render Dispatcher
 // ----------------------------------------------------
+const lessonReportsView=createLessonReportView({context:()=>({email:currentUser?.email||'',active:currentUserProfile?.active===true,view:((isVisitingTeacher()&&['class_hub','homeroom_class','weekly_menu'].includes(view))||view==='lesson_reports'||(view==='class_hub'&&(isVisitingTeacher()||['reports','all'].includes(classHubTab))))?'lesson_reports':view,hrIds:officialHomeroomClassIds(),week:timetableWeek(publishedTimetable?.data||state)||todayWeek(),weekLabel:(publishedTimetable?.data||state).school?.currentWeek||''}),rerender:()=>render(),toast:message=>toast(message)});
+const weeklyMenu=createWeeklyMenu({context:()=>({email:currentUser?.email||'',active:currentUserProfile?.active===true&&!isVisitingTeacher(),admin:['OWNER','ADMIN'].includes(currentUserProfile?.role),view:(view==='weekly_menu'||(view==='class_hub'&&['menu','all'].includes(classHubTab)))?'weekly_menu':view}),read:async()=>{const s=await getDoc(doc(db,'timetables','weekly_menu'));return s.exists()?s.data():null;},write:data=>setDoc(doc(db,'timetables','weekly_menu'),data),rerender:()=>render(),toast:message=>toast(message)});
+
+function renderClassHubPage(classes) {
+  if (isVisitingTeacher()) return lessonReportsView.render();
+  const pData = (publishedTimetable && publishedTimetable.isPublished && publishedTimetable.data)
+    ? publishedTimetable.data
+    : (state || workingDraft);
+  const availableClasses = (classes && classes.length > 0)
+    ? classes
+    : (pData.classes || state.classes || []);
+  const activeClassId = selectedHomeroomClassId || availableClasses[0]?.id;
+  const currentClass = availableClasses.find(c => c.id === activeClassId) || availableClasses[0];
+  const pendingReportCount = lessonReportsView?.badge() || 0;
+
+  const statsHtml = `
+    <div class="stats class-hub-stats" style="margin-bottom:16px;">
+      <div class="${classHubTab === 'timetable' ? 'active-stat-card' : ''}" style="cursor:pointer;" data-class-hub-tab="timetable" title="Xem và xuất Thời khóa biểu lớp học">
+        <span class="stat-icon" style="background:#fce7f3;color:#8C0D36;">🖼️</span>
+        <div class="stat-content">
+          <strong style="color:#8C0D36;">${currentClass ? esc(currentClass.name) : 'TKB lớp'}</strong>
+          <span>Poster chuẩn VASchools</span>
+        </div>
+      </div>
+
+      <div class="${classHubTab === 'reports' ? 'active-stat-card' : ''}" style="cursor:pointer;" data-class-hub-tab="reports" title="Xem và quản lý phiếu báo bài tuần">
+        <span class="stat-icon" style="background:#e0f2fe;color:#0369a1;">📘</span>
+        <div class="stat-content">
+          <strong style="color:#0369a1;">Báo bài tuần</strong>
+          <span>${pendingReportCount ? `<b style="color:#b91c1c;">${pendingReportCount} môn chờ duyệt</b>` : 'Đã đồng bộ Cloud'}</span>
+        </div>
+      </div>
+
+      <div class="${classHubTab === 'menu' ? 'active-stat-card' : ''}" style="cursor:pointer;" data-class-hub-tab="menu" title="Xem thực đơn bán trú tuần">
+        <span class="stat-icon" style="background:#fef3c7;color:#d97706;">🍽️</span>
+        <div class="stat-content">
+          <strong style="color:#d97706;">Thực đơn tuần</strong>
+          <span>Thứ 2 – Thứ 6 bán trú</span>
+        </div>
+      </div>
+
+      <div class="${classHubTab === 'all' ? 'active-stat-card' : ''}" style="cursor:pointer;" data-class-hub-tab="all" title="Xem tất cả 3 mục trong 1 trang">
+        <span class="stat-icon" style="background:#f0fdf4;color:#15803d;">📑</span>
+        <div class="stat-content">
+          <strong style="color:#15803d;">Xem tất cả</strong>
+          <span>Gộp 3 nội dung liên lạc</span>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const tabsHtml = `
+    <div class="tabs-nav" style="margin-bottom:16px;">
+      <button data-class-hub-tab="timetable" class="${classHubTab === 'timetable' ? 'active' : ''}">
+        🖼️ Thời khóa biểu học sinh
+      </button>
+      <button data-class-hub-tab="reports" class="${classHubTab === 'reports' ? 'active' : ''}">
+        📘 Báo bài tuần ${pendingReportCount ? `<b class="badge" style="background:#ef4444;color:#fff;margin-left:4px;">${pendingReportCount}</b>` : ''}
+      </button>
+      <button data-class-hub-tab="menu" class="${classHubTab === 'menu' ? 'active' : ''}">
+        🍽️ Thực đơn bán trú
+      </button>
+      <button data-class-hub-tab="all" class="${classHubTab === 'all' ? 'active' : ''}">
+        📑 Xem tất cả (3 trong 1)
+      </button>
+    </div>
+  `;
+
+  let contentHtml = '';
+  if (classHubTab === 'timetable') {
+    contentHtml = renderHomeroomClassTimetable(classes);
+  } else if (classHubTab === 'reports') {
+    contentHtml = lessonReportsView.render();
+  } else if (classHubTab === 'menu') {
+    contentHtml = weeklyMenu.render();
+  } else if (classHubTab === 'all') {
+    contentHtml = `
+      <div style="display:flex;flex-direction:column;gap:24px;">
+        <div style="background:#fff;border-radius:12px;padding:6px 0;box-shadow:0 2px 8px rgba(0,0,0,0.03);border:1px solid #e2e8f0;">
+          <div style="padding:12px 18px 6px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;">
+            <h3 style="margin:0;font-size:13.5px;color:#8C0D36;font-weight:700;">🖼️ Thời khóa biểu học sinh (VASchools)</h3>
+            <button data-class-hub-tab="timetable" style="font-size:10.5px;padding:3px 9px;">Xem riêng tab TKB</button>
+          </div>
+          ${renderHomeroomClassTimetable(classes)}
+        </div>
+
+        <div style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.03);border:1px solid #e2e8f0;">
+          <div style="padding:12px 18px 6px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;">
+            <h3 style="margin:0;font-size:13.5px;color:#0369a1;font-weight:700;">📘 Báo bài tuần học</h3>
+            <button data-class-hub-tab="reports" style="font-size:10.5px;padding:3px 9px;">Xem riêng tab Báo bài</button>
+          </div>
+          ${lessonReportsView.render()}
+        </div>
+
+        <div style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.03);border:1px solid #e2e8f0;">
+          <div style="padding:12px 18px 6px;border-bottom:1px solid #f1f5f9;display:flex;align-items:center;justify-content:space-between;">
+            <h3 style="margin:0;font-size:13.5px;color:#d97706;font-weight:700;">🍽️ Thực đơn bán trú tuần</h3>
+            <button data-class-hub-tab="menu" style="font-size:10.5px;padding:3px 9px;">Xem riêng tab Thực đơn</button>
+          </div>
+          ${weeklyMenu.render()}
+        </div>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="class-hub-container">
+      ${statsHtml}
+      ${tabsHtml}
+      ${contentHtml}
+    </div>
+  `;
+}
+function renderSubjectSelector(selectedSubjectNames = [], prefix = 'onboarding') {
+  const subjects = getOnboardingSubjects(state, SEED);
+  const selectedSet = new Set((selectedSubjectNames || []).map(s => String(s).trim().toLowerCase()));
+
+  return `
+    <div class="onboarding-subjects-wrapper" id="${prefix}-subjects-wrapper">
+      <div class="onboarding-search-row">
+        <input 
+          type="text" 
+          id="${prefix}-subject-search" 
+          placeholder="🔍 Tìm nhanh môn học (ví dụ: Công nghệ, GDCD, Toán, Tiếng Anh...)" 
+          autocomplete="off"
+        >
+      </div>
+
+      <div class="onboarding-quick-chips">
+        <span class="quick-chip-label">Gợi ý nhanh:</span>
+        <button type="button" class="quick-chip-btn ${selectedSet.has('công nghệ') || selectedSet.has('cong nghe') ? 'active' : ''} highlight-chip" data-toggle-subject="Công nghệ" data-prefix="${prefix}">
+          ✨ Công nghệ (CN)
+        </button>
+        <button type="button" class="quick-chip-btn ${selectedSet.has('gdcd') ? 'active' : ''}" data-toggle-subject="GDCD" data-prefix="${prefix}">
+          GDCD
+        </button>
+        <button type="button" class="quick-chip-btn ${selectedSet.has('toán') || selectedSet.has('toan') ? 'active' : ''}" data-toggle-subject="Toán" data-prefix="${prefix}">
+          Toán
+        </button>
+        <button type="button" class="quick-chip-btn ${selectedSet.has('ngữ văn') || selectedSet.has('ngu van') ? 'active' : ''}" data-toggle-subject="Ngữ văn" data-prefix="${prefix}">
+          Ngữ văn
+        </button>
+        <button type="button" class="quick-chip-btn ${selectedSet.has('tiếng anh') || selectedSet.has('tieng anh') ? 'active' : ''}" data-toggle-subject="Tiếng anh" data-prefix="${prefix}">
+          Tiếng Anh
+        </button>
+        <button type="button" class="quick-chip-btn ${selectedSet.has('tin học') || selectedSet.has('tin hoc') ? 'active' : ''}" data-toggle-subject="Tin học" data-prefix="${prefix}">
+          Tin học
+        </button>
+      </div>
+
+      <div class="onboarding-selected-summary">
+        <span>Đã chọn: <strong id="${prefix}-selected-count">${selectedSet.size}</strong> môn</span>
+        <span style="font-size:10px;color:#6b8076;">(Chọn 1 hoặc nhiều môn giảng dạy)</span>
+      </div>
+
+      <div class="onboarding-subjects-grid" id="${prefix}-subjects-list">
+        ${subjects.map(s => {
+          const isChecked = selectedSet.has(s.name.trim().toLowerCase());
+          const isCN = s.name === 'Công nghệ' || s.code === 'CN' || s.code === 'CONG_NGHE';
+          const searchData = `${s.name.toLowerCase()} ${s.code.toLowerCase()}`;
+          const inputId = `${prefix}-subj-${esc(s.id)}`;
+          const displayCode = (s.code === 'CONG_NGHE' ? 'CN' : s.code);
+          return `
+            <label class="onboarding-subject-card ${isChecked ? 'selected' : ''} ${isCN ? 'featured-cn' : ''}" for="${inputId}" data-subject-search="${esc(searchData)}">
+              <input type="checkbox" name="subjects" value="${esc(s.name)}" id="${inputId}" ${isChecked ? 'checked' : ''} class="onboarding-subject-checkbox" data-prefix="${prefix}">
+              <span class="subject-color-badge" style="background:${esc(s.color || '#10b981')}"></span>
+              <span class="subject-name-label" title="${esc(s.name)}">${esc(s.name)}</span>
+              <span class="subject-code-pill">${esc(displayCode)}</span>
+              ${isCN ? '<span class="badge-new-subj">Mới</span>' : ''}
+            </label>
+          `;
+        }).join('')}
+      </div>
+      <p id="${prefix}-subject-empty" style="display:none;font-size:11.5px;color:#c2410c;padding:8px;text-align:center;margin:4px 0 0;">
+        Không tìm thấy môn phù hợp. Thầy/Cô có thể ghi chú thêm môn vào ô bên dưới.
+      </p>
+    </div>
+  `;
+}
+
 export function render() {
+  weeklyMenu.sync();
+  lessonReportsView.sync();
   recordCurrentScrollPositions();
   // 1. Loading
   if (authLoading) {
@@ -2542,41 +3072,48 @@ export function render() {
   }
 
   if(profileReadError){
-    app.innerHTML='<div class="auth-overlay"><div class="login-card"><h1>Chưa tải được tài khoản</h1><p>'+esc(profileReadError)+'</p><button data-action="logout">Đăng xuất</button></div></div>';return;
+    app.innerHTML='<div class="auth-overlay"><div class="login-card"><h1>Chưa tải được tài khoản</h1><p>'+esc(profileReadError)+'</p><button class="primary" data-action="retry-profile">Thử lại</button> <button data-action="logout">Đăng xuất</button></div></div>';return;
   }
-  // 3. User logged in but no profile exists in database -> Onboarding Flow
-  if (!currentUserProfile) {
+  // 3. User logged in but no profile exists in database OR is editing declared profile -> Onboarding Flow
+  if (!currentUserProfile || isEditingDeclaredProfile) {
+    const isEditMode = Boolean(currentUserProfile && isEditingDeclaredProfile);
+    const declaredSubs = currentUserProfile?.selfDeclared?.subjects || [];
+    const declaredHr = currentUserProfile?.selfDeclared?.homeroomClassId || '';
+    const declaredNote = currentUserProfile?.selfDeclared?.note || '';
+    const teacherName = currentUserProfile?.displayName || currentUser.displayName || '';
+
     app.innerHTML = `
       <div class="auth-overlay">
-        <div class="login-card" style="max-width:520px;text-align:left;">
-          <h2 style="color:#184239;margin:0 0 6px;">Hoàn thiện hồ sơ giáo viên</h2>
-          <p style="margin-bottom:18px;">Chào mừng <strong>${esc(currentUser.email)}</strong>! Vui lòng khai báo thông tin ban đầu để Quản trị viên nhà trường xác nhận và phân quyền.</p>
+        <div class="login-card" style="max-width:540px;text-align:left;">
+          <h2 style="color:#184239;margin:0 0 6px;">${isEditMode ? 'Cập nhật môn & thông tin khai báo' : 'Hoàn thiện hồ sơ giáo viên'}</h2>
+          <p style="margin-bottom:18px;">
+            Chào mừng <strong>${esc(currentUser.email)}</strong>! ${isEditMode ? 'Thầy/Cô có thể chọn lại hoặc bổ sung môn giảng dạy (ví dụ: Công nghệ) và gửi lại cho Quản trị viên.' : 'Vui lòng khai báo thông tin ban đầu để Quản trị viên nhà trường xác nhận và phân quyền.'}
+          </p>
 
           <form id="onboarding-form">
             <label>Họ và tên giáo viên
-              <input name="displayName" required value="${esc(currentUser.displayName || '')}" placeholder="Nguyễn Văn An">
+              <input name="displayName" required value="${esc(teacherName)}" placeholder="Nguyễn Văn An">
             </label>
 
-            <label>Môn giảng dạy (Chọn một hoặc nhiều môn)
-              <select name="subjects" multiple size="4" style="height:90px;" required>
-                ${(SEED.subjects || []).map(s => `<option value="${esc(s.name)}">${esc(s.name)} (${esc(s.code)})</option>`).join('')}
-              </select>
+            <label style="margin-top:14px;display:block;">
+              Môn giảng dạy (Chọn một hoặc nhiều môn)
+              ${renderSubjectSelector(declaredSubs, 'onboarding')}
             </label>
 
-            <label>Lớp chủ nhiệm (Tự khai báo)
+            <label style="margin-top:14px;display:block;">Lớp chủ nhiệm (Tự khai báo nếu có)
               <select name="homeroomClassId">
                 <option value="">— Không chủ nhiệm —</option>
-                ${(SEED.classes || []).map(c => `<option value="${esc(c.id)}">Lớp ${esc(c.name)}</option>`).join('')}
+                ${[...((state.classes && state.classes.length) ? state.classes : (SEED.classes || []))].map(c => `<option value="${esc(c.id)}" ${declaredHr === c.id ? 'selected' : ''}>Lớp ${esc(c.name)}</option>`).join('')}
               </select>
             </label>
 
-            <label>Ghi chú thêm (Ví dụ: Giáo viên thỉnh giảng, số điện thoại...)
-              <input name="note" maxlength="300" placeholder="Thông tin liên hệ, nguyện vọng xếp lịch...">
+            <label style="margin-top:14px;display:block;">Ghi chú thêm (Ví dụ: Giáo viên thỉnh giảng, số điện thoại...)
+              <input name="note" maxlength="300" value="${esc(declaredNote)}" placeholder="Thông tin liên hệ, nguyện vọng xếp lịch...">
             </label>
 
-            <div style="margin-top:20px;display:flex;gap:10px;justify-content:flex-end;">
-              <button type="button" data-action="logout">Đăng xuất</button>
-              <button type="submit" class="primary">Gửi hồ sơ cho Quản trị viên</button>
+            <div style="margin-top:20px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;">
+              ${isEditMode ? '<button type="button" data-action="cancel-edit-declared-profile">Hủy</button>' : '<button type="button" data-action="logout">Đăng xuất</button>'}
+              <button type="submit" class="primary">${isEditMode ? 'Lưu & Cập nhật hồ sơ' : 'Gửi hồ sơ cho Quản trị viên'}</button>
             </div>
           </form>
         </div>
@@ -2589,16 +3126,18 @@ export function render() {
   if (currentUserProfile.active !== true) {
     app.innerHTML = `
       <div class="auth-overlay">
-        <div class="unauth-card">
+        <div class="unauth-card" style="max-width:520px;">
           <span class="warning-badge">HỒ SƠ ĐANG CHỜ XÁC NHẬN</span>
           <h2>Hồ sơ đã được tiếp nhận</h2>
           <p>Hồ sơ của tài khoản <strong>${esc(currentUser.email)}</strong> đang chờ Ban Giám hiệu / Quản trị viên xác nhận mã giáo viên và kích hoạt quyền truy cập.</p>
-          <div style="background:#f6f9f4;padding:12px;border-radius:8px;font-size:11px;text-align:left;margin:16px 0;">
-            Môn khai báo: <strong>${esc(currentUserProfile.selfDeclared?.subjects?.join(', ') || 'Chưa chọn')}</strong><br>
-            Lớp chủ nhiệm khai báo: <strong>${esc(currentUserProfile.selfDeclared?.homeroomClassId ? text(SEED.classes, currentUserProfile.selfDeclared.homeroomClassId) : 'Không chủ nhiệm')}</strong>
+          <div style="background:#f6f9f4;padding:14px;border-radius:8px;font-size:12px;text-align:left;margin:16px 0;line-height:1.7;border:1px solid #dce8db;">
+            <strong>Môn đã khai báo:</strong> <span style="color:#0f5132;font-weight:700;">${esc(currentUserProfile.selfDeclared?.subjects?.join(', ') || 'Chưa chọn')}</span><br>
+            <strong>Lớp chủ nhiệm:</strong> ${esc(currentUserProfile.selfDeclared?.homeroomClassId ? text(SEED.classes, currentUserProfile.selfDeclared.homeroomClassId) : 'Không chủ nhiệm')}<br>
+            ${currentUserProfile.selfDeclared?.note ? `<strong>Ghi chú:</strong> ${esc(currentUserProfile.selfDeclared.note)}` : ''}
           </div>
-          <p style="font-size:11px;color:#85968e;">Vui lòng liên hệ Quản trị viên để được hỗ trợ kích hoạt.</p>
-          <div style="margin-top:20px;display:flex;gap:10px;justify-content:center;">
+          <p style="font-size:11px;color:#85968e;">Thầy/Cô có thể bổ sung hoặc sửa lại môn giảng dạy bất kỳ lúc nào bằng nút bên dưới.</p>
+          <div style="margin-top:20px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+            <button type="button" data-action="edit-declared-profile" style="background:#184239;color:#fff;border-color:#184239;font-weight:600;">✏️ Sửa / Bổ sung môn khai báo</button>
             <button data-action="logout">Đăng xuất</button>
             <button class="primary" data-action="login">Đổi tài khoản khác</button>
           </div>
@@ -2616,6 +3155,7 @@ export function render() {
   else if (currentWorkspace === 'VISITING') workspaceData = renderVisitingWorkspace();
   else workspaceData = renderRegularTeacherWorkspace();
 
+  if(view==='lesson_reports' || view==='weekly_menu') workspaceData.content=()=>renderClassHubPage();
   const availableWs = getAvailableWorkspaces();
   const roleNames = {
     OWNER: 'Quản trị chính',
@@ -2625,26 +3165,51 @@ export function render() {
   };
 
   app.innerHTML = `
-    <aside class="sidebar">
-      <a class="brand" href="#"><span class="brand-icon">▦</span><span>TKB<span class="brand-sub">SỔ LỊCH NHÀ TRƯỜNG</span></span></a>
+    <button type="button" class="mobile-menu-backdrop" data-action="close-mobile-menu" aria-label="Đóng menu" ${mobileMenuOpen ? '' : 'hidden'}></button>
+    <aside class="sidebar ${isSidebarCollapsed ? 'collapsed' : ''} ${mobileMenuOpen ? 'mobile-open' : ''}" id="app-sidebar" ${isMobileMenu()&&!mobileMenuOpen?'inert':''}>
+      <div class="sidebar-header">
+        <a class="brand" href="#" data-action="toggle-sidebar" title="${isSidebarCollapsed ? 'Mở rộng cột menu (Ctrl+B)' : 'Sổ lịch nhà trường'}">
+          <span class="brand-icon">▦</span>
+          <span class="brand-text">TKB<span class="brand-sub">SỔ LỊCH NHÀ TRƯỜNG</span></span>
+        </a>
+        <button type="button" class="sidebar-toggle-btn" data-action="toggle-sidebar" title="${isSidebarCollapsed ? 'Mở rộng cột menu (Ctrl+B)' : 'Thu gọn cột menu (Ctrl+B)'}" aria-label="Thu gọn hoặc mở rộng cột menu">
+          ${isSidebarCollapsed ? '⇥' : '⇤'}
+        </button>
+      </div>
       <div class="sidebar-label">KHÔNG GIAN LÀM VIỆC</div>
-      <nav>
+      <nav class="sidebar-nav">
         ${workspaceData.menu
           .map(
-            ([id, icon, name]) =>
-              `<button data-view="${id}" class="nav-button ${view === id ? 'active' : ''}"><span>${icon}</span>${name}</button>`
+            ([id, icon, name]) => {
+              const plainName = String(name).replace(/<[^>]*>/g, '').trim();
+              return `<button data-view="${id}" class="nav-button ${view === id ? 'active' : ''}" title="${esc(plainName)}">
+                <span class="nav-icon">${icon}</span>
+                <span class="nav-text">${name}</span>
+              </button>`;
+            }
           )
           .join('')}
       </nav>
       <div class="sidebar-bottom">
-        <span class="status-dot"></span> Cloud Đồng bộ<p>Vai trò: <strong>${roleNames[currentUserProfile.role] || currentUserProfile.role}</strong></p>
-        <button data-action="backup" class="sidebar-backup">↓ Tải sao lưu JSON</button>
+        <div class="sidebar-bottom-info">
+          <span class="status-dot"></span> <span class="sync-text">Cloud Đồng bộ</span>
+          <p>Vai trò: <strong>${roleNames[currentUserProfile.role] || currentUserProfile.role}</strong></p>
+        </div>
+        <button data-action="backup" class="sidebar-backup" title="Tải sao lưu JSON">
+          <span class="backup-icon">↓</span>
+          <span class="backup-text">Tải sao lưu JSON</span>
+        </button>
       </div>
     </aside>
 
-    <div class="workspace">
+    <div class="workspace ${isSidebarCollapsed ? 'sidebar-collapsed' : ''}">
       <header class="topbar">
-        <span>${esc(state.school?.name || 'Trường THCS & THPT')}</span>
+        <div class="topbar-left">
+          <button type="button" class="topbar-menu-toggle" aria-controls="app-sidebar" aria-expanded="${isMobileMenu()?mobileMenuOpen:!isSidebarCollapsed}" data-action="toggle-sidebar" title="${isSidebarCollapsed ? 'Mở rộng cột menu (Ctrl+B)' : 'Thu gọn cột menu (Ctrl+B)'}" aria-label="Thu gọn hoặc mở rộng cột menu">
+            ${isMobileMenu() ? '☰' : isSidebarCollapsed ? '☰' : '⇤'}
+          </button>
+          <span class="topbar-school-title">${esc(state.school?.name || 'Trường THCS & THPT')}</span>
+        </div>
         <div>
           <span class="year">${esc(state.school?.year || '2026-2027')} · ${esc(state.school?.term || 'HK1')} · ${esc(schoolWeekText(state.school))}</span>
 
@@ -2657,6 +3222,17 @@ export function render() {
                 ${availableWs.map(w => `<option value="${w.id}" ${w.id === currentWorkspace ? 'selected' : ''}>${w.label}</option>`).join('')}
               </select>
             </div>
+          `
+              : ''
+          }
+
+          ${
+            isSchedulerRole() && requestsList.filter(r => r && r.status === 'PENDING').length
+              ? `
+            <button data-view="teacher_requests" style="background:#fef3c7;color:#92400e;border:1px solid #f59e0b;padding:5px 11px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;" title="Xem các yêu cầu điều chỉnh lịch từ giáo viên">
+              <span>📩</span>
+              <span>${requestsList.filter(r => r && r.status === 'PENDING').length} yêu cầu đổi lịch</span>
+            </button>
           `
               : ''
           }
@@ -2696,7 +3272,7 @@ export function render() {
         <div class="page-heading">
           <div>
             <div class="eyebrow">LẬP LỊCH • ${esc(state.school?.term || 'HK1')}</div>
-            <h1>${titles[view] || view}</h1>
+            <h1>${isVisitingTeacher() && ['class_hub','homeroom_class','weekly_menu','lesson_reports'].includes(view) ? 'Báo bài tuần' : titles[view] || view}</h1>
             <p>${
               currentWorkspace === 'ADMIN'
                 ? 'Giao diện quản trị toàn diện: quản lý tài khoản, danh mục và cấu hình trường.'
@@ -2710,8 +3286,7 @@ export function render() {
             }</p>
           </div>
           <div class="heading-actions">
-            <button data-action="print">In / PDF</button>
-            <button data-action="csv">Xuất CSV</button>
+            ${view === 'published_all' || (view === 'matrix' && (showPublished || activeVersion === 'published')) ? '<button data-action="published-excel">↓ Excel TKB đã công bố</button>' : ''}
             ${canEditWorking() ? '<button class="primary" data-action="save-version">＋ Lưu phiên bản</button>' : ''}
           </div>
         </div>
@@ -2885,11 +3460,13 @@ function openTimetableCellPopover({ classId, timeSlotId, day, period, anchorElem
     top = Math.max(10, rect.top - 440);
   }
 
-  const sessionText = (slot?.session === 'MORNING' || period <= 5) ? 'Sáng' : 'Chiều';
+  const sessionText = (slot ? slot.session === 'MORNING' : period <= 5) ? 'Sáng' : 'Chiều';
   const periodText = slot?.period || (period > 5 ? period - 5 : period);
 
   const container = document.createElement('div');
   container.id = 'active-matrix-popover-root';
+  Object.assign(container.dataset,{timetableClass:classId,timetableSlot:timeSlotId,timetableDay:String(day),timetablePeriod:String(period)});
+  const slotRegistrations=registrationSlotIndex(workingDraft,availabilityRecords);
   container.innerHTML = `
     <div class="matrix-popover-overlay" data-action="close-popover"></div>
     <div class="matrix-popover timetable-popover" style="top:${top}px;left:${left}px;width:${popoverWidth}px;max-height:85vh;overflow-y:auto;">
@@ -3005,28 +3582,36 @@ function openTimetableCellPopover({ classId, timeSlotId, day, period, anchorElem
       </div>
 
       ${cls?.grade===11?`<label>Tổ hợp lớp 11 <select id="grade11-popover-track" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}"><option value="TN" ${grade11Track==='TN'?'selected':''}>Tự nhiên</option><option value="XH" ${grade11Track==='XH'?'selected':''}>Xã hội</option></select></label>`:''}
-      <div class="popover-suggestions-list">
+      <input type="search" class="popover-search" id="timetable-suggestion-search" placeholder="Tìm môn hoặc giáo viên (có/không dấu)..." aria-label="Tìm môn hoặc giáo viên" autocomplete="off">
+      <div id="timetable-suggestion-warning" role="alert" style="color:#b91c1c;font-size:12px;margin:6px 0;" hidden></div>
+      <div id="timetable-suggestion-empty" role="status" style="padding:8px;color:#64748b;" hidden>Không tìm thấy môn hoặc giáo viên phù hợp.</div>
+      <div class="popover-suggestions-list" id="timetable-suggestions-list">
         ${classAssignments.length ? classAssignments.map(a => {
           const subj = (workingDraft.subjects || []).find(x => x.id === a.subjectId);
           const tea = (workingDraft.teachers || []).find(x => x.id === a.teacherId);
+          const searchLabel = esc([subj?.name,subj?.code,tea?.fullName,tea?.code].filter(Boolean).join(" "));
           const teaColor = a.teacherId ? getTeacherColor(workingDraft, a.teacherId) : (subj?.color || '#3b82f6');
           const busyInfo = lessonBusy(workingDraft,{teacherId:a.teacherId,classId,timeSlotId:slot?.id,subjectId:a.subjectId});
+          const registration=registrationForSlot(slotRegistrations,a.teacherId,timeSlotId);
+          const registrationText=availabilityLoadState!=='ready'?'Chưa đối chiếu được đăng ký rảnh/bận':registration?registrationDetail(registration,slot):'Chưa đăng ký rảnh/bận cho tiết này';
+          const registrationHtml=`<span class="suggestion-registration ${registration?.status==='busy'?'is-busy':''}">${registration?.status==='busy'?'⚠ ':''}${esc(registrationText)}</span>`;
           const isCurrent = currentCell && currentCell.subjectId === a.subjectId && currentCell.teacherId === a.teacherId;
 
           if (busyInfo.isBusy) {
             return `
-              <div class="popover-suggestion-item busy" title="${esc(tea?.fullName || 'GV')} bận tại ${esc(busyInfo.conflictingClass?.name || 'lớp khác')}">
+              <div class="popover-suggestion-item busy" data-suggestion-search="${searchLabel}" title="${esc(tea?.fullName || 'GV')} bận tại ${esc(busyInfo.conflictingClass?.name || 'lớp khác')}">
                 <i class="item-color-dot" style="background:${esc(teaColor)};"></i>
                 <div class="item-info">
                   <strong>${esc(subj?.name || 'Môn học')}</strong>
-                  <span class="teacher-busy-label">⛔ ${esc(tea?.fullName || 'GV')} bận tại ${esc(busyInfo.conflictingClass?.name || 'lớp khác')}</span>
+                  <span class="teacher-busy-label">⛔ ${esc(tea?.fullName || 'GV')} bận tại ${esc(busyInfo.conflictingClass?.name || 'lớp khác')}</span>${registrationHtml}
                 </div>
               </div>
             `;
           }
 
           return `
-            <button type="button" class="popover-suggestion-item free ${isCurrent ? 'selected' : ''}"
+            <button type="button" class="popover-suggestion-item free ${isCurrent ? 'selected' : ''} ${registration?.status==='busy'?'registration-busy-suggestion':''}"
+                    data-suggestion-search="${searchLabel}"
                     data-action="assign-popover-suggestion"
                     data-class="${esc(classId)}"
                     data-slot="${esc(timeSlotId)}"
@@ -3037,7 +3622,7 @@ function openTimetableCellPopover({ classId, timeSlotId, day, period, anchorElem
               <i class="item-color-dot" style="background:${esc(teaColor)};"></i>
               <div class="item-info">
                 <strong>${esc(subj?.name || 'Môn học')}</strong>
-                <span class="teacher-free-label" style="display:flex;align-items:center;gap:4px;"><i style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${esc(teaColor)};flex-shrink:0;"></i>👨‍🏫 ${esc(tea?.fullName || 'Chưa gán GV')} · Rảnh</span>
+                <span class="teacher-free-label" style="display:flex;align-items:center;gap:4px;"><i style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${esc(teaColor)};flex-shrink:0;"></i>👨‍🏫 ${esc(tea?.fullName || 'Chưa gán GV')} · Không trùng tiết dạy</span>${registrationHtml}
               </div>
               ${isCurrent ? '<span class="item-current-badge">✓ Đang gán</span>' : '<span class="item-assign-action">Gán</span>'}
             </button>
@@ -3052,6 +3637,7 @@ function openTimetableCellPopover({ classId, timeSlotId, day, period, anchorElem
         `}
       </div>
 
+      <button type="button" data-action="open-substitute" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}" data-track="${cls?.grade===11?(subjectTrack(workingDraft.subjects.find(s=>s.id===currentCell?.subjectId))==='COMMON'?'COMMON':grade11Track):''}" style="width:100%;margin-top:10px;white-space:normal">⇄ Chọn giáo viên dạy thay (ngoài phân công)</button>
       <div class="popover-footer" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;margin-top:8px;border-top:1px solid #e2e8f0;">
         <div style="display:flex;align-items:center;gap:8px;">
           ${currentCell ? `
@@ -3258,6 +3844,27 @@ function openTeacherImportPreviewModal({ fileName, parsedTeachers }) {
   `);
 }
 
+function substituteTeacherOptions(form){
+ const classId=form.dataset.class,timeSlotId=form.dataset.slot,subjectId=form.elements.subjectId.value,selected=form.elements.teacherId.value;
+ const query=form.querySelector('#substitute-search').value,index=registrationSlotIndex(workingDraft,availabilityRecords);
+ const known=t=>(t.assignments||[]).some(a=>a.subjectId===subjectId)||(workingDraft.draftAssignments||[]).some(a=>a.teacherId===t.id&&a.subjectId===subjectId);
+ const teachers=[...(workingDraft.teachers||[])].filter(t=>matchesSuggestionSearch(query,t.fullName,t.code)).sort((a,b)=>Number(known(b))-Number(known(a))||a.fullName.localeCompare(b.fullName,'vi'));
+ form.elements.teacherId.innerHTML='<option value="">— Chọn giáo viên thực tế dạy thay —</option>'+teachers.map(t=>{const conflict=lessonBusy(workingDraft,{teacherId:t.id,classId,timeSlotId,subjectId}),registration=registrationForSlot(index,t.id,timeSlotId);const status=conflict.isBusy?'TRÙNG LỊCH: '+(conflict.conflictingClass?.name||'lớp khác'):registration?.status==='busy'?'ĐÃ ĐĂNG KÝ BẬN':known(t)?'Đã có phân công môn này':'Ngoài phân công môn này';return `<option value="${esc(t.id)}" ${t.id===selected?'selected':''} ${conflict.isBusy?'disabled':''}>${esc(t.fullName)} (${esc(t.code)}) — ${esc(status)}</option>`;}).join('');
+ const official=getAssignedTeacher(workingDraft,classId,subjectId);
+ form.querySelector('#substitute-official').textContent='Giáo viên phân công chính: '+(official?.fullName||'Chưa có')+'. Giáo viên được chọn bên dưới sẽ nhận tiết này trong lịch cá nhân sau khi công bố.';
+}
+function openSubstituteEditor(classId,timeSlotId,track=''){
+ if(!canEditWorking())return;
+ const cls=workingDraft.classes.find(c=>c.id===classId),slot=workingDraft.timeSlots.find(t=>t.id===timeSlotId),parent=workingDraft.timetableCells.find(c=>c.classId===classId&&c.timeSlotId===timeSlotId);
+ if(parent?.locked){toast('Hãy mở khóa tiết trước khi chọn giáo viên dạy thay.');return;}
+ const existing=cellLessons(workingDraft,parent).find(l=>!track||l.track===track),subjects=subjectsForClass(workingDraft,classId,cls?.grade===11?track:'');
+ const subjectId=existing?.subjectId||(workingDraft.draftAssignments||[]).find(a=>a.classId===classId&&subjects.some(s=>s.id===a.subjectId))?.subjectId||subjects[0]?.id;
+ closePopover();openDialog(`<form id="substitute-form" data-class="${esc(classId)}" data-slot="${esc(timeSlotId)}" data-track="${esc(track)}"><div class="dialog-title"><div><h2>Chọn giáo viên dạy thay</h2><p>${esc(cls?.name)} · Thứ ${slot?.dayOfWeek} · ${slot?.session==='MORNING'?'Sáng':'Chiều'} tiết ${slot?.period}</p></div>${closeButton}</div><label>Môn học<select name="subjectId" id="substitute-subject">${selectOptions(subjects,subjectId,'name','— Chọn môn —')}</select></label><p id="substitute-official" class="field-help"></p><label>Tìm tên hoặc mã giáo viên<input type="search" id="substitute-search" autocomplete="off" placeholder="Nhập tên giáo viên…"></label><label>Giáo viên thực tế dạy thay<select name="teacherId" required></select></label><p class="field-help">Có thể chọn giáo viên ngoài phân công môn–lớp. Người xếp lịch xác nhận chuyên môn phù hợp. Không đổi phân công chính; giáo viên trùng tiết dạy sẽ bị chặn. Lịch bận đã đăng ký vẫn được cảnh báo.</p><label>Ghi chú (nếu có)<input name="note" maxlength="200" value="${esc(existing?.note||'')}"></label><div id="form-error" class="form-error" role="alert"></div><div class="dialog-actions"><button type="button" data-action="close">Hủy</button><button type="submit" class="primary">Lưu giáo viên dạy thay</button></div></form>`);
+ substituteTeacherOptions(document.querySelector('#substitute-form'));
+}
+document.addEventListener('input',e=>{if(e.target.id==='substitute-search')substituteTeacherOptions(e.target.closest('form'));});
+document.addEventListener('change',e=>{if(e.target.id==='substitute-subject')substituteTeacherOptions(e.target.closest('form'));});
+
 function cellEditor(classId, timeSlotId, selectedTrack = '') {
   recordCurrentScrollPositions();
   if (!canEditWorking()) {
@@ -3397,8 +4004,11 @@ function entityEditor(kind, id) {
             ${[6, 7, 8, 9, 10, 11, 12].map(g => `<option value="${g}" ${item.grade === g ? 'selected' : ''}>Khối ${g}</option>`).join('')}
           </select>
         </label>
-        <label>Giáo viên chủ nhiệm (GVCN)
+        <label>Giáo viên chủ nhiệm 1
           <select name="homeroomTeacherId">${selectOptions(state.teachers || [], item.homeroomTeacherId, 'fullName', '— Chưa có GVCN —')}</select>
+        </label>
+        <label>Giáo viên chủ nhiệm 2
+          <select name="coHomeroomTeacherId">${selectOptions(state.teachers || [], item.coHomeroomTeacherId, 'fullName', '— Chưa có GVCN thứ hai —')}</select>
         </label>
       `
           : kind === 'subjects'
@@ -3416,6 +4026,14 @@ function entityEditor(kind, id) {
       </div>
     </form>
   `);
+}
+
+function posterWeekInfo(school={}) {
+ const raw=String(school.currentWeek??'').trim()||String(school.week??'').trim();
+ const weekLabel=raw?(/^\d+$/.test(raw)?'Tuần '+raw:raw):'Chưa đặt tuần học';
+ const dateLabel=value=>/^\d{4}-\d{2}-\d{2}$/.test(value||'')?value.split('-').reverse().join('/'):String(value||'').trim();
+ const range=school.weekStartDate&&school.weekEndDate?[school.weekStartDate,school.weekEndDate].map(dateLabel).join(' – '):String(school.weekDates||'').trim()||dateLabel(school.appliedDate);
+ return {weekLabel,caption:range?weekLabel+': '+range:weekLabel};
 }
 
 function schoolWeekText(school={}) {
@@ -3511,7 +4129,7 @@ function reviewProfileDialog(targetEmail) {
       <div class="pending-box" style="margin-bottom:16px;">
         <strong>Thông tin tự khai báo:</strong><br>
         • Môn giảng dạy: ${esc(acc.selfDeclared?.subjects?.join(', ') || 'Chưa chọn')}<br>
-        • Lớp chủ nhiệm tự khai: ${esc(acc.selfDeclared?.homeroomClassId ? text(state.classes || [], acc.selfDeclared.homeroomClassId) : 'Không chủ nhiệm')}<br>
+        • Lớp chủ nhiệm: ${esc(acc.selfDeclared?.homeroomClassId ? text(state.classes || [], acc.selfDeclared.homeroomClassId) : 'Không chủ nhiệm')}<br>
         • Ghi chú: ${esc(acc.selfDeclared?.note || 'Không có')}
       </div>
 
@@ -3571,13 +4189,65 @@ function respondRequestDialog(requestId, decision) {
 // ----------------------------------------------------
 // Global Event Listeners & Actions
 // ----------------------------------------------------
+function integrationDialog(){
+ openDialog(`<div class="dialog-title"><h2>AI & Kết nối</h2>${closeButton}</div>
+ ${isSchedulerRole()?`<section class="card"><h3>AI hỗ trợ xếp lịch</h3><p>Đề xuất tối đa 5 tiết di chuyển vào ô trống. Kiểm tra trùng lịch và xem trước trước khi áp dụng. Gửi mã lớp, môn, giáo viên và lịch tiết sang Gemini; không gửi email, hồ sơ hay khóa truy cập.</p><label>Yêu cầu<input id="ai-instruction" maxlength="500" placeholder="Ví dụ: giảm tiết trống cho giáo viên"></label><button data-action="ai-suggest">Tạo đề xuất AI</button><p id="ai-feedback" role="status"></p></section>`:''}
+ <section class="card"><h3>Google Calendar</h3><p>Đồng bộ lịch giảng dạy đã chốt của chính bạn vào lịch Google chính. Thêm/cập nhật cùng mã, không tự xóa sự kiện cũ. Khi có tiết bị hủy, hãy xóa sự kiện cũ trong Google Calendar.</p><button data-action="calendar-connect">Kết nối & xem trước</button><button data-action="calendar-ics">Tải lịch ICS</button></section>
+ <section class="card"><h3>Google Drive</h3><p>Chỉ xin quyền đối với tệp do app tạo. Mỗi lần tạo một bản riêng, không ghi đè bản sao cũ.</p>${isAdmin()?'<button data-action="backup-drive">Sao lưu toàn bộ dữ liệu</button>':''}<button data-action="csv-drive">Lưu lịch CSV</button><button data-action="poster-drive">Lưu ảnh TKB lớp đang xem</button></section>`);
+}
+async function personalCalendarEvents(){if(!publishedTimetable?.isPublished)throw Error('Chưa có thời khóa biểu đã chốt.');const teacherId=currentUserProfile?.teacherId;if(!teacherId)throw Error('Quản trị viên cần gắn hồ sơ giáo viên cho tài khoản này.');return calendarEvents(publishedTimetable.data,teacherId);}
+let calendarPreview=null;
+function downloadLocalDraft(){
+ const local=isSchedulerRole()?workingDraft:displayed();validateState(local);
+ download('tkb-'+(isSchedulerRole()?'ban-nhap-cuc-bo':'lich-da-chot')+'-'+new Date().toISOString().replaceAll(':','-')+'.json',JSON.stringify(local,null,2));
+}
+
+// Fit printed sheets to their available preview frame; export dimensions stay native.
+function sheetCanvasSize(p){return {width:p.offsetWidth,height:p.offsetHeight,onclone(doc){const copy=doc.getElementById(p.id);if(copy){copy.style.setProperty('zoom','1','important');copy.style.setProperty('--poster-preview-scale','1');}}};}
+
 const actions = {
+  'push-settings':()=>showPushSettings(openDialog),
+  'open-substitute':element=>openSubstituteEditor(element.dataset.class,element.dataset.slot,element.dataset.track||''),
+  'close-mobile-menu': () => { setMobileMenu(false); document.querySelector('.topbar-menu-toggle')?.focus(); },
+  'toggle-sidebar': () => {
+    if(isMobileMenu()){setMobileMenu(!mobileMenuOpen);if(mobileMenuOpen)document.querySelector('.sidebar-toggle-btn')?.focus();return;}
+    isSidebarCollapsed = !isSidebarCollapsed;
+    try {
+      localStorage.setItem('vas_sidebar_collapsed', isSidebarCollapsed ? 'true' : 'false');
+    } catch (e) {}
+    render();
+  },
+  'published-excel':()=>{try{const file=publishedExcel(publishedTimetable,XLSX);download(file.filename,file.bytes,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');toast('Đã tải Excel toàn trường từ bản đã công bố, đủ tất cả lớp và tiết học.');}catch(error){toast(error.message);}},
+  'schedule-focus-enter':()=>{recordCurrentScrollPositions();matrixFocusEnabled=true;render();},
+  'schedule-focus-exit':()=>{recordCurrentScrollPositions();matrixFocusEnabled=false;render();},
+  'schedule-focus-tools':()=>{recordCurrentScrollPositions();matrixFocusTools=!matrixFocusTools;render();},
+  'registration-week-previous':()=>{moveRegistrationWeek('previous',displayed());render();},
+  'registration-week-next':()=>{moveRegistrationWeek('next',displayed());render();},
+  'registration-week-today':()=>{moveRegistrationWeek('today',displayed());render();},
+  'registration-week-schedule':()=>{moveRegistrationWeek('schedule',displayed());render();},
+  'install-phone':async()=>{if(await installPhoneApp())return;openDialog(`<div class="dialog-title"><h2>Cài TKB trên điện thoại</h2>${closeButton}</div><p>Mở https://thoikhoabieusmart.ai.studio/ trên điện thoại.</p><p><strong>Android (Chrome):</strong> mở menu ⋮ → Cài đặt ứng dụng hoặc Thêm vào màn hình chính.</p><p><strong>iPhone (Safari):</strong> bấm Chia sẻ → Thêm vào MH chính.</p><p>Đăng nhập cùng tài khoản Google để dùng chung dữ liệu nhà trường. Chỉ sửa khi có mạng; chờ “Đã lưu Cloud” trước khi đóng. Thiết bị khác cập nhật sau khoảng 15 giây khi app đang mở.</p>`);},
+  integrations:integrationDialog,
+  'ai-suggest':async()=>{
+    if(!canEditWorking()||isSavingWorking||isWriting())throw Error('Chuyển sang bản nháp và đợi lưu xong trước khi dùng AI.');
+    const generation=authGeneration,signature=contentSignature(workingDraft),instruction=document.querySelector('#ai-instruction')?.value||'';
+    const feedback=document.querySelector('#ai-feedback');if(feedback)feedback.textContent='AI đang phân tích lịch…';let result;try{result=await askScheduleAI(instruction);}catch(error){if(feedback)feedback.textContent=error.message;throw error;}
+    if(generation!==authGeneration)return;if(result.revision!==currentRevision || signature!==contentSignature(workingDraft))throw Error('Lịch đã thay đổi trong lúc phân tích. Hãy tạo đề xuất mới.');
+    applyMoves(workingDraft,result.moves);aiProposal={...result,signature};
+    openDialog(`<div class="dialog-title"><h2>Đề xuất AI — chưa thay đổi lịch</h2>${closeButton}</div><p>${esc(result.explanation)}</p><ul>${result.moves.map(m=>{const c=workingDraft.timetableCells.find(c=>c.id===m.cellId),slot=workingDraft.timeSlots.find(s=>s.id===m.timeSlotId);return `<li>${esc(text(workingDraft.classes,c.classId))} · ${esc(text(workingDraft.subjects,c.subjectId))} → Thứ ${esc(slot.dayOfWeek)}, tiết ${esc(slot.period)}, ${esc(slot.startTime)}</li>`;}).join('')}</ul><button data-action="ai-apply" class="primary">Áp dụng vào bản nháp</button>`);
+  },
+  'ai-apply':async()=>{if(!canEditWorking()||!aiProposal||aiProposal.signature!==contentSignature(workingDraft))throw Error('Lịch đã thay đổi. Hãy tạo đề xuất mới.');let next=applyMoves(workingDraft,aiProposal.moves);next=recordChange(next,{actionType:'ASSIGN',description:'Áp dụng đề xuất AI ('+aiProposal.moves.length+' tiết)',actor:currentUser?.email||'Người xếp lịch',previousSnapshot:clone(workingDraft.timetableCells||[])});aiProposal=null;dialog.close();await syncWorkingToCloud(next);},
+  'calendar-connect':async()=>{const events=await personalCalendarEvents();if(!events.length)throw Error('Tuần này chưa có tiết giảng dạy.');calendarPreview={events,signature:contentSignature(publishedTimetable)};openDialog(`<div class="dialog-title"><h2>Đồng bộ Google Calendar</h2>${closeButton}</div><p>Sẽ thêm/cập nhật ${events.length} tiết trong tuần. Sự kiện cũ không tự xóa. Google sẽ yêu cầu bạn cấp quyền quản lý sự kiện trên lịch bạn sở hữu.</p><button data-action="calendar-confirm" class="primary">Cấp quyền và đồng bộ ${events.length} tiết</button>`);},
+  'calendar-confirm':async()=>{if(!calendarPreview||calendarPreview.signature!==contentSignature(publishedTimetable))throw Error('Lịch đã thay đổi. Hãy xem trước lại.');const events=await personalCalendarEvents(),token=await authorizeCalendar();const n=await upsertCalendar({token,events});calendarPreview=null;dialog.close();toast('Đã đồng bộ '+n+' tiết vào Google Calendar.');},
+  'calendar-ics':async()=>{const events=await personalCalendarEvents();const escape=v=>String(v).replace(/\\/g,'\\\\').replace(/\n/g,'\\n').replace(/,/g,'\\,').replace(/;/g,'\\;');const stamp=v=>v.replace(/[-:]/g,'').slice(0,15);download('lich-giang-day.ics',['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//VietMy//TKB//VI',...events.flatMap(e=>['BEGIN:VEVENT','UID:'+e.id+'@tkb-vietmy','DTSTAMP:'+new Date().toISOString().replace(/[-:]/g,'').slice(0,15)+'Z','DTSTART;TZID=Asia/Ho_Chi_Minh:'+stamp(e.start.dateTime),'DTEND;TZID=Asia/Ho_Chi_Minh:'+stamp(e.end.dateTime),'SUMMARY:'+escape(e.summary),'END:VEVENT']),'END:VCALENDAR'].join('\r\n')+'\r\n','text/calendar;charset=utf-8');},
+  'poster-drive':async()=>{const poster=document.querySelector('#vaschools-timetable-poster');if(!poster)throw Error('Mở TKB học sinh, chọn lớp rồi bấm lưu ảnh lên Drive.');const token=await authorizeDrive();await document.fonts.ready;const canvas=await html2canvas(poster,{...sheetCanvasSize(poster),scale:2.5,useCORS:true,backgroundColor:'#fff',logging:false});const content=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.95));if(!content)throw Error('Chưa tạo được ảnh.');const file=await saveDriveFile({token,name:'TKB-lop-'+(selectedHomeroomClassId||'hien-tai')+'-'+new Date().toISOString().slice(0,10)+'.jpg',content,mimeType:'image/jpeg'});toast('Đã lưu ảnh riêng tư lên Drive: '+file.name);},
+
   'backup-all': async () => {
     if(!isAdmin())return;
-    const full=await cloudBackup();download('tkb-toan-bo-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(full,null,2));toast('Đã tải bản sao toàn bộ dữ liệu.');
+    downloadLocalDraft();try{const full=await cloudBackup();download('tkb-toan-bo-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(full,null,2));toast('Đã tải bản nháp cục bộ và bản sao toàn bộ Cloud.');}catch(error){throw Error('Đã tải bản nháp cục bộ về máy. Chưa tải được bản toàn bộ Cloud: '+error.message);}
   },
   'backup-drive': async () => {
     if(!isAdmin())return;
+    downloadLocalDraft();
     const token=await authorizeDrive();
     const full=await cloudBackup();
     const content=JSON.stringify(full,null,2),name='TKB-sao-luu-'+new Date().toISOString().replaceAll(':','-')+'.json';
@@ -3611,13 +4281,18 @@ const actions = {
       render();
     }
   },
+  'personal-jpg': downloadPersonalTeachingJpg,
+  'retry-profile': async () => {
+    if(!currentUser)return;
+    profileReadError='';authLoading=true;render();
+    await retryCloudReads();
+  },
   logout: async () => {
+    await disableDevicePush().catch(()=>{});
     stopAllSubscriptions();
     await fbSignOut(auth);
   },
-  backup: () => {
-    download(`tkb-sao-luu-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(displayed(), null, 2));
-  },
+  backup: () => {downloadLocalDraft();toast('Đã tải dữ liệu trên màn hình về máy; không cần kết nối Supabase.');},
   print: () => window.print(),
   'print-poster': () => window.print(),
   'export-timetable-image': async () => {
@@ -3636,18 +4311,19 @@ const actions = {
       if (homeroomExportTrack === 'XH') exportClassName += '_Ban_Xa_Hoi';
       else if (homeroomExportTrack === 'TN') exportClassName += '_Ban_Tu_Nhien';
     }
-    const weekRaw = pData.school?.week || 'Tuần 11';
-    const filename = computeExportFileName(exportClassName, weekRaw);
+    const weekRaw = posterWeekInfo(pData.school).weekLabel;
+    const filename = computeExportFileName(exportClassName, weekRaw).replace(/\.png$/i, '.jpg');
 
     toast('Đang tạo ảnh thời khóa biểu độ phân giải cao...');
     try {
       const canvas = await html2canvas(poster, {
+        ...sheetCanvasSize(poster),
         scale: 2.5,
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff'
       });
-      const dataUrl = canvas.toDataURL('image/png');
+      const dataUrl = canvas.toDataURL('image/jpeg',0.95);
       const a = document.createElement('a');
       a.href = dataUrl;
       a.download = filename;
@@ -3700,6 +4376,7 @@ const actions = {
     render();
   },
   'publish-all': async () => {
+ if(isSavingWorking || isWriting()){toast('Vui lòng đợi lưu xong bản nháp.');return;}
     if (!canEditWorking()) {
       toast('Bạn không có quyền công bố thời khóa biểu.');
       return;
@@ -3714,6 +4391,8 @@ const actions = {
       return;
     }
 
+    try { assertDailySubjectRules(workingDraft); assertSessionAndRoboticsRules(workingDraft); } catch (error) { toast(error.message); return; }
+    if(!confirmWeeklyPublication())return;
     const next = publishDraft(workingDraft);
 
     // 6. Không công bố lại lịch giống bản đã công bố: 0 ghi!
@@ -3833,7 +4512,7 @@ const actions = {
     const period = Number(element.dataset.period);
     const subjectId = element.dataset.subject;
     const teacherId = element.dataset.teacher;
-    closePopover();
+
 
     if (!canEditWorking()) return;
     const dayLabel = `Thứ ${day}`;
@@ -3862,6 +4541,7 @@ const actions = {
         subjectId,
         teacherId
       });
+      closePopover();
       const clsName = text(workingDraft.classes, classId);
       const subjName = text(workingDraft.subjects, subjectId);
       const teaName = text(workingDraft.teachers, teacherId, 'fullName') || 'Chưa gán GV';
@@ -3887,7 +4567,9 @@ const actions = {
         toast('Đã xếp tiết học thành công.');
       }
     } catch (err) {
-      toast('Lỗi khi xếp tiết: ' + err.message);
+      const warning=document.querySelector('#timetable-suggestion-warning');
+      if(warning){warning.textContent=err.message;warning.hidden=false;}
+      toast(err.message);
     }
   },
   'popover-clear-slot': async element => {
@@ -4412,72 +5094,52 @@ const actions = {
   },
   school: schoolEditor,
   'add-account': () => accountEditor(null),
-  'save-availability': async () => {
-    if (!currentUser?.email) return;
-    if (isQuotaExhausted()) {
-      toast('Hạn mức ghi Firestore đã hết (resource-exhausted). Không thể lưu lịch bận.');
-      return;
-    }
-    const dateRangeText = (document.querySelector('#avail-daterange')?.value || '').trim();
-    const noteText = (document.querySelector('#avail-note')?.value || '').trim();
-    const newAvail = (availabilityDoc?.availableSlotIds || []).slice();
-    const newBusy = (availabilityDoc?.busySlotIds || []).slice();
-
-    const newObj = {
-      availableSlotIds: newAvail,
-      busySlotIds: newBusy,
-      dateRange: { text: dateRangeText },
-      note: noteText
-    };
-
-    // 6. Không ghi lại lịch bận khi nội dung không đổi: 0 ghi!
-    if (serverConfirmedAvailability && areAvailabilitiesEqual(serverConfirmedAvailability, newObj)) {
-      toast('Lịch đăng ký không có thay đổi so với bản đã lưu trên Cloud.');
-      return;
-    }
-
-    const payload = {
-      teacherEmail: currentUser.email.toLowerCase(),
-      availableSlotIds: newAvail,
-      busySlotIds: newBusy,
-      dateRange: { text: dateRangeText },
-      note: noteText,
-      updatedAt: new Date().toISOString()
-    };
-    try {
-      await setDoc(doc(db, 'availabilities', currentUser.email.toLowerCase()), payload);
-      serverConfirmedAvailability = clone(payload);
-      toast('Đã lưu khung thời gian có thể dạy lên Cloud.');
-    } catch (e) {
-      if (checkAndFlagQuotaError(e)) {
-        toast('Hạn mức Firestore đã hết. Vui lòng thử lại sau.');
-        render();
-        return;
-      }
-      toast('Lỗi lưu thời gian: ' + e.message);
-    }
+  'availability-use-semester':async()=>{
+   if(!isVisitingTeacher()||!currentUser?.email)return;
+   const week=availabilityWeek(),email=currentUser.email.toLowerCase(),generation=authGeneration;
+   try{const result=await setDoc(doc(db,'availabilities',email),{teacherEmail:email,[`weeks.${week}`]:null},{merge:true});if(generation!==authGeneration)return;
+    availabilityDoc=clone(result?.row?.data||{...availabilityDoc,weeks:{...availabilityDoc?.weeks,[week]:null}});serverConfirmedAvailability=clone(availabilityDoc);availabilityDrafts.delete('week:'+week);toast('Tuần này đã dùng lại lịch cố định học kỳ.');render();
+   }catch(error){toast('Chưa lưu được: '+error.message);}
   },
-  'edit-self-declared': () => {
+  'save-availability': async () => {
+    if(!currentUser?.email)return;rememberAvailabilityNote();
+    const week=availabilityWeek(),draft=clone(currentAvailabilityDraft()),scope=availabilityScope(),school=(publishedTimetable?.data||state).school||{},key=semesterKey(publishedTimetable?.data||state);
+    if(scope==='semester'&&!key){toast('Nhà trường cần đặt năm học và học kỳ trước khi đăng ký cố định.');return;}
+    const entry={availableSlotIds:draft.availableSlotIds||[],busySlotIds:draft.busySlotIds||[],note:draft.note||'',...(scope==='semester'?{year:school.year,term:school.term}:{weekStart:week,weekEnd:addDays(week,4)})};
+    const previous=scope==='semester'?semesterRegistration(availabilityDoc,publishedTimetable?.data||state):availabilityDoc?.weeks?.[week];
+    if(JSON.stringify(entry)===JSON.stringify(previous)){toast('Đăng ký không có thay đổi.');return;}
+    const email=currentUser.email.toLowerCase(),generation=authGeneration,path=scope==='semester'?'semesters':'weeks',id=scope==='semester'?key:week,draftKey=availabilityDraftKey();
+    try{const result=await setDoc(doc(db,'availabilities',email),{teacherEmail:email,[path+'.'+id]:entry},{merge:true});if(generation!==authGeneration)return;
+      availabilityDoc=clone(result?.row?.data||{...availabilityDoc,teacherEmail:email,[path]:{...availabilityDoc?.[path],[id]:entry}});serverConfirmedAvailability=clone(availabilityDoc);availabilityDrafts.delete(draftKey);
+      toast(scope==='semester'?'Đã lưu lịch cố định học kỳ lên Cloud.':'Đã lưu thay đổi riêng tuần '+weekCaption(week)+' lên Cloud.');render();
+    }catch(error){toast('Chưa lưu được đăng ký: '+error.message+'. Lựa chọn vẫn giữ trên trang để thử lại.');}
+  },  'edit-self-declared': () => {
     openDialog(`
       <form id="edit-self-declared-form">
         <div class="dialog-title">
-          <h2>Cập nhật thông tin tự khai</h2>
+          <h2>Cập nhật thông tin môn & tự khai</h2>
           ${closeButton}
         </div>
-        <label>Môn giảng dạy
-          <select name="subjects" multiple size="4" style="height:90px;" required>
-            ${(state.subjects || []).map(s => `<option value="${esc(s.name)}" ${(currentUserProfile?.selfDeclared?.subjects || []).includes(s.name) ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
-          </select>
+        <label>Môn giảng dạy (Chọn một hoặc nhiều môn)
+          ${renderSubjectSelector(currentUserProfile?.selfDeclared?.subjects || [], 'edit-profile')}
         </label>
-        <label>Ghi chú cá nhân
+        <label style="margin-top:14px;display:block;">Ghi chú cá nhân
           <input name="note" maxlength="300" value="${esc(currentUserProfile?.selfDeclared?.note || '')}" placeholder="Ghi chú...">
         </label>
         <div class="dialog-actions">
           <button type="button" data-action="close">Hủy</button>
-          <button type="submit" class="primary">Lưu</button>
+          <button type="submit" class="primary">Lưu thông tin</button>
         </div>
       </form>
     `);
+  },
+  'edit-declared-profile': () => {
+    isEditingDeclaredProfile = true;
+    render();
+  },
+  'cancel-edit-declared-profile': () => {
+    isEditingDeclaredProfile = false;
+    render();
   },
   'toggle-lock': async element => {
     if (!canEditWorking()) return;
@@ -4596,6 +5258,33 @@ const actions = {
   'respond-request': element => {
     respondRequestDialog(element.dataset.id, element.dataset.decision);
   },
+  'cancel-request': async element => {
+    const reqId = element.dataset.id;
+    if (!reqId) return;
+    if (!confirm('Thầy/Cô có chắc chắn muốn hủy yêu cầu điều chỉnh này không?')) return;
+    try {
+      await deleteDoc(doc(db, 'requests', reqId));
+      requestsList = requestsList.filter(r => r.id !== reqId);
+      toast('Đã hủy yêu cầu điều chỉnh lịch.');
+      render();
+    } catch (err) {
+      toast(err.message || 'Không thể hủy yêu cầu.');
+    }
+  },
+  'delete-request': async element => {
+    if (!isSchedulerRole()) return;
+    const reqId = element.dataset.id;
+    if (!reqId) return;
+    if (!confirm('Xác nhận xóa bản ghi yêu cầu này?')) return;
+    try {
+      await deleteDoc(doc(db, 'requests', reqId));
+      requestsList = requestsList.filter(r => r.id !== reqId);
+      toast('Đã xóa bản ghi yêu cầu.');
+      render();
+    } catch (err) {
+      toast(err.message || 'Không thể xóa bản ghi.');
+    }
+  },
   import: () => {
     if (!isSchedulerRole()) return;
     const input = document.createElement('input');
@@ -4677,7 +5366,7 @@ const actions = {
 };
 
 document.addEventListener('click', async event => {
-  const element = event.target.closest('button, [data-toggle-slot], [data-action], [data-select-teacher], [data-assign-cell], [data-popover-select-teacher]');
+  const element = event.target.closest('button, [data-toggle-slot], [data-action], [data-select-teacher], [data-assign-cell], [data-popover-select-teacher], [data-publish-tab], [data-class-hub-tab], [data-view]');
   if (!element) return;
 
   if (element.dataset.loginAs) {
@@ -4685,15 +5374,47 @@ document.addEventListener('click', async event => {
     render();
     return;
   }
+  if (element.dataset.publishTab) {
+    publishAndDataTab = element.dataset.publishTab;
+    render();
+    return;
+  }
+  if (element.dataset.classHubTab) {
+    classHubTab = element.dataset.classHubTab;
+    render();
+    return;
+  }
   if (element.dataset.action && actions[element.dataset.action]) {
     const action=element.dataset.action;
-    if(pendingActions.has(action)||isWriting())return;
+    if((pendingActions.has(action)||isWriting()||isSavingWorking)&&!/backup|export|download|toggle-sidebar|close-mobile-menu/.test(action))return;
     pendingActions.add(action);
     try{await actions[action](element);}catch(error){checkAndFlagQuotaError(error);toast(error.message || 'Không thể hoàn tất thao tác.');}finally{pendingActions.delete(action);}
     return;
   }
   if (element.dataset.view) {
-    view = element.dataset.view;
+    setMobileMenu(false);
+    const targetView = element.dataset.view;
+    if (targetView === 'conflicts') {
+      view = 'publish_and_data';
+      publishAndDataTab = 'conflicts';
+    } else if (targetView === 'versions') {
+      view = 'publish_and_data';
+      publishAndDataTab = 'versions';
+    } else if (targetView === 'backup') {
+      view = 'publish_and_data';
+      publishAndDataTab = 'backup';
+    } else if (targetView === 'homeroom_class') {
+      view = 'class_hub';
+      classHubTab = 'timetable';
+    } else if (targetView === 'weekly_menu') {
+      view = 'class_hub';
+      classHubTab = 'menu';
+    } else if (targetView === 'lesson_reports') {
+      view = 'class_hub';
+      classHubTab = 'reports';
+    } else {
+      view = targetView;
+    }
     render();
     return;
   }
@@ -4704,15 +5425,17 @@ document.addEventListener('click', async event => {
   }
   if (element.dataset.openHomeroomClass) {
     selectedHomeroomClassId = element.dataset.openHomeroomClass;
-    view = 'homeroom_class';
+    view = 'class_hub';
+    classHubTab = 'timetable';
     render();
     return;
   }
   if (element.dataset.toggleSlot) {
     const slotId = element.dataset.toggleSlot;
     if (!slotId) return;
-    let avail = new Set(availabilityDoc?.availableSlotIds || []);
-    let busy = new Set(availabilityDoc?.busySlotIds || []);
+    rememberAvailabilityNote();
+    let avail = new Set(currentAvailabilityDraft().availableSlotIds || []);
+    let busy = new Set(currentAvailabilityDraft().busySlotIds || []);
 
     if (avail.has(slotId)) {
       avail.delete(slotId);
@@ -4722,11 +5445,11 @@ document.addEventListener('click', async event => {
     } else {
       avail.add(slotId);
     }
-    availabilityDoc = {
-      ...availabilityDoc,
+    availabilityDrafts.set(availabilityDraftKey(), {
+      ...currentAvailabilityDraft(),
       availableSlotIds: [...avail],
       busySlotIds: [...busy]
-    };
+    });
     render();
     return;
   }
@@ -4759,6 +5482,7 @@ document.addEventListener('click', async event => {
     if ((currentWorkspace !== 'ADMIN' && currentWorkspace !== 'SCHEDULER') || !isSchedulerRole() || view === 'published_all') return;
     recordCurrentScrollPositions();
     matrixViewMode = element.dataset.setMatrixMode;
+    if(matrixViewMode==='timetable'){matrixFocusEnabled=true;matrixFocusTools=false;}
     render();
     return;
   }
@@ -5023,9 +5747,48 @@ document.addEventListener('click', async event => {
     }
     return;
   }
+
+  const chipBtn = element.closest('.quick-chip-btn[data-toggle-subject]');
+  if (chipBtn) {
+    const prefix = chipBtn.dataset.prefix || 'onboarding';
+    const subjName = chipBtn.dataset.toggleSubject;
+    const checkbox = document.querySelector(`#${prefix}-subjects-list .onboarding-subject-checkbox[value="${subjName}"]`);
+    if (checkbox) {
+      checkbox.checked = !checkbox.checked;
+      const card = checkbox.closest('.onboarding-subject-card');
+      if (card) card.classList.toggle('selected', checkbox.checked);
+      chipBtn.classList.toggle('active', checkbox.checked);
+      const checked = document.querySelectorAll(`#${prefix}-subjects-list .onboarding-subject-checkbox:checked`);
+      const countEl = document.querySelector(`#${prefix}-selected-count`);
+      if (countEl) countEl.textContent = checked.length;
+    }
+    return;
+  }
 });
 
 document.addEventListener('change', event => {
+  if (event.target.classList?.contains('onboarding-subject-checkbox')) {
+    const card = event.target.closest('.onboarding-subject-card');
+    if (card) {
+      card.classList.toggle('selected', event.target.checked);
+    }
+    const prefix = event.target.dataset.prefix || 'onboarding';
+    const checked = document.querySelectorAll(`#${prefix}-subjects-list .onboarding-subject-checkbox:checked`);
+    const countEl = document.querySelector(`#${prefix}-selected-count`);
+    if (countEl) countEl.textContent = checked.length;
+    document.querySelectorAll(`.quick-chip-btn[data-prefix="${prefix}"]`).forEach(chip => {
+      const subjName = chip.dataset.toggleSubject;
+      const cb = document.querySelector(`#${prefix}-subjects-list .onboarding-subject-checkbox[value="${subjName}"]`);
+      chip.classList.toggle('active', !!cb?.checked);
+    });
+    return;
+  }
+  if(event.target.id==='registration-view-week'){schedulerRegistrationWeek=mondayOf(event.target.value)||'';render();return;}
+  if(event.target.id==='availability-scope'){rememberAvailabilityNote();selectedAvailabilityScope=event.target.value;render();return;}
+  if(event.target.id==='availability-week'){
+    rememberAvailabilityNote();selectedAvailabilityWeek=mondayOf(event.target.value)||availabilityWeek();render();return;
+  }
+  if(event.target.id==='avail-note'){rememberAvailabilityNote();return;}
   if (event.target.id === 'workspace-select') {
     currentWorkspace = event.target.value;
     view = currentWorkspace === 'ADMIN' ? 'overview'
@@ -5115,9 +5878,49 @@ document.addEventListener('keydown', event => {
       actions['undo-last-change']();
     }
   }
+  // Phím tắt Thu/Mở cột Menu: Ctrl+B hoặc Cmd+B
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') {
+    const activeEl = document.activeElement;
+    const isEditingText = activeEl && (
+      activeEl.tagName === 'INPUT' ||
+      activeEl.tagName === 'TEXTAREA' ||
+      activeEl.isContentEditable
+    );
+    if (!isEditingText) {
+      event.preventDefault();
+      actions['toggle-sidebar']();
+    }
+  }
 });
 
 document.addEventListener('input', event => {
+  if (event.target.id?.endsWith('-subject-search')) {
+    const prefix = event.target.id.replace('-subject-search', '');
+    const filter = String(event.target.value || '').trim().toLowerCase();
+    const list = document.querySelector(`#${prefix}-subjects-list`);
+    if (list) {
+      const cards = list.querySelectorAll('.onboarding-subject-card');
+      let visible = 0;
+      cards.forEach(card => {
+        const search = card.dataset.subjectSearch || '';
+        const match = !filter || search.includes(filter);
+        card.style.display = match ? 'flex' : 'none';
+        if (match) visible++;
+      });
+      const emptyEl = document.querySelector(`#${prefix}-subject-empty`);
+      if (emptyEl) emptyEl.style.display = (visible === 0 && filter) ? 'block' : 'none';
+    }
+    return;
+  }
+  if(event.target.id==='timetable-suggestion-search'){
+    const list=document.querySelector('#timetable-suggestions-list');
+    const items=[...(list?.querySelectorAll('[data-suggestion-search]')||[])];
+    let visible=0;
+    for(const item of items){const match=matchesSuggestionSearch(event.target.value,item.dataset.suggestionSearch);item.hidden=!match;item.style.display=match?'':'none';if(match)visible++;}
+    if(list)list.scrollTop=0;
+    const empty=document.querySelector('#timetable-suggestion-empty');if(empty)empty.hidden=visible>0||items.length===0;
+    return;
+  }
   if (event.target.id === 'quick-line-input') {
     const val = event.target.value;
     if (val.includes('-') || val.includes('–')) {
@@ -5147,7 +5950,7 @@ document.addEventListener('submit', async event => {
   if (!form) return;
 
   // 5. Khóa nút và biểu mẫu khi đang lưu để tránh nhấp/gửi nhiều lần
-  if (form.dataset.submitting === 'true' || isGlobalSaving || isWriting()) {
+  if (form.dataset.submitting === 'true' || isGlobalSaving || (isWriting() || isSavingWorking)) {
     return;
   }
 
@@ -5170,7 +5973,17 @@ document.addEventListener('submit', async event => {
 
   try {
     if (form.id === 'onboarding-form') {
-      const subjects = data.getAll('subjects').map(s => String(s).trim());
+      const subjects = data.getAll('subjects').map(s => String(s).trim()).filter(Boolean);
+      if (!subjects.length) {
+        toast('Vui lòng chọn ít nhất 1 môn giảng dạy.');
+        submitBtns.forEach(btn => {
+          btn.disabled = false;
+          btn.textContent = btn.dataset.prevText || 'Gửi hồ sơ cho Quản trị viên';
+        });
+        delete form.dataset.submitting;
+        isGlobalSaving = false;
+        return;
+      }
       const homeroomClassId = String(data.get('homeroomClassId') || '').trim();
       const note = String(data.get('note') || '').trim();
       const displayName = String(data.get('displayName') || '').trim();
@@ -5185,7 +5998,9 @@ document.addEventListener('submit', async event => {
 
       // 6. Không ghi lại hồ sơ khi nội dung không đổi
       if (currentUserProfile && areUserProfilesEqual(currentUserProfile, newProfile)) {
+        isEditingDeclaredProfile = false;
         toast('Hồ sơ không có thay đổi, không cần gửi lại.');
+        render();
         return;
       }
 
@@ -5204,6 +6019,7 @@ document.addEventListener('submit', async event => {
         updatedBy: userEmail
       });
 
+      isEditingDeclaredProfile = false;
       toast('Đã gửi hồ sơ thành công. Vui lòng chờ Quản trị viên duyệt.');
       currentUserProfile = {
         email: userEmail,
@@ -5212,6 +6028,14 @@ document.addEventListener('submit', async event => {
         selfDeclared: { subjects, homeroomClassId, note }
       };
       render();
+    } else if (form.id === 'substitute-form') {
+      if(!canEditWorking())throw Error('Bạn không có quyền xếp lịch.');
+      const classId=form.dataset.class,timeSlotId=form.dataset.slot,subjectId=String(data.get('subjectId')||''),teacherId=String(data.get('teacherId')||'');
+      if(form.dataset.track&&subjectTrack(workingDraft.subjects.find(s=>s.id===subjectId))!==form.dataset.track)throw Error('Môn không thuộc tổ hợp đang sửa.');
+      const existing=workingDraft.timetableCells.find(c=>c.classId===classId&&c.timeSlotId===timeSlotId),previousSnapshot=clone(workingDraft.timetableCells);
+      let next=assignSubstituteLesson(workingDraft,{classId,timeSlotId,subjectId,teacherId,note:String(data.get('note')||'').trim()});
+      next=recordChange(next,{actionType:'EDIT',description:`Dạy thay: ${text(workingDraft.teachers,teacherId,'fullName')} — ${text(workingDraft.subjects,subjectId)}, ${text(workingDraft.classes,classId)}`,classId,timeSlotId,previousCell:existing,newCell:next.timetableCells.find(c=>c.classId===classId&&c.timeSlotId===timeSlotId),actor:currentUser?.email||'Người xếp lịch',previousSnapshot});
+      if(await syncWorkingToCloud(next)){dialog.close();render();toast('Đã lưu giáo viên dạy thay vào bản đang xếp. Công bố lịch để giáo viên nhận tiết dạy.');}
     } else if (form.id === 'cell-form') {
       recordCurrentScrollPositions();
       const classId = form.dataset.class;
@@ -5277,6 +6101,7 @@ document.addEventListener('submit', async event => {
       if (list.some(item => item.id !== id && item.code.toLocaleLowerCase() === code.toLocaleLowerCase())) {
         throw Error('Mã đã tồn tại trong danh mục.');
       }
+      if(kind==='classes' && data.get('homeroomTeacherId') && data.get('homeroomTeacherId')===data.get('coHomeroomTeacherId'))throw Error('Hai giáo viên chủ nhiệm phải khác nhau.');
       const existing = list.find(item => item.id === id) || {};
       const item = {
         ...existing,
@@ -5390,21 +6215,37 @@ document.addEventListener('submit', async event => {
       const reason = String(data.get('reason') || '').trim();
       const proposal = String(data.get('proposal') || '').trim();
 
+      const pData = publishedTimetable?.data || state;
+      const slot = (pData.timeSlots || []).find(s => s.id === timeSlotId);
+      const cls = (pData.classes || []).find(c => c.id === classId);
+      const subj = (pData.subjects || []).find(s => s.id === subjectId);
+      const lessonSummary = (slot || cls || subj)
+        ? `Thứ ${slot?.dayOfWeek || '?'} · Tiết ${slot?.period || '?'} (${slot?.session === 'MORNING' ? 'Sáng' : 'Chiều'}) · Lớp ${cls?.name || ''} (${subj?.name || ''})`
+        : (lessonVal.includes('other') ? 'Điều chỉnh chung' : '');
+
       const reqId = uid();
-      await setDoc(doc(db, 'requests', reqId), {
+      const newReq = {
         id: reqId,
-        teacherEmail: currentUser.email.toLowerCase(),
-        teacherId: currentUserProfile.teacherId || '',
+        teacherEmail: (currentUser?.email || '').toLowerCase().trim(),
+        teacherName: currentUserProfile?.displayName || currentUser?.displayName || currentUser?.email || 'Giáo viên',
+        teacherId: currentUserProfile?.teacherId || '',
         timeSlotId: timeSlotId || '',
         classId: classId || '',
         subjectId: subjectId || '',
+        lessonSummary,
         reason,
         proposal,
         status: 'PENDING',
         createdAt: new Date().toISOString()
-      });
+      };
 
-      toast('Đã gửi yêu cầu điều chỉnh lịch tới Người xếp lịch.');
+      await setDoc(doc(db, 'requests', reqId), newReq);
+
+      if (!requestsList.some(r => r.id === reqId)) {
+        requestsList.unshift(newReq);
+      }
+
+      toast('Đã gửi yêu cầu điều chỉnh lịch tới Người xếp lịch và Quản trị viên.');
       form.reset();
       render();
     } else if (form.id === 'respond-request-form') {
@@ -5419,8 +6260,17 @@ document.addEventListener('submit', async event => {
         updatedBy: currentUser.email
       });
 
+      const targetReq = requestsList.find(r => r.id === reqId);
+      if (targetReq) {
+        targetReq.status = decision;
+        targetReq.responseNote = responseNote;
+        targetReq.updatedAt = new Date().toISOString();
+        targetReq.updatedBy = currentUser.email;
+      }
+
       toast(`Đã ${decision === 'APPROVED' ? 'chấp thuận' : 'từ chối'} yêu cầu.`);
       dialog.close();
+      render();
     } else if (form.id === 'edit-self-declared-form') {
       const subjects = data.getAll('subjects').map(s => String(s).trim());
       const note = String(data.get('note') || '').trim();
@@ -5472,6 +6322,7 @@ document.addEventListener('submit', async event => {
 // Assignment Tray & Drag-and-Drop Event Listeners
 // ----------------------------------------------------
 document.addEventListener('change', event => {
+
   if (event.target.id === 'tray-class-select') {
     recordCurrentScrollPositions();
     traySelectedClassId = event.target.value;
@@ -5633,6 +6484,7 @@ testConnection().then(health=>{
 
 
 document.addEventListener('change', event => {
+
   const el = event.target;
   if (el.id === 'grade11-editor-track') cellEditor(el.dataset.class, el.dataset.slot, el.value);
   if (el.id === 'grade11-popover-track') {
@@ -5655,3 +6507,17 @@ document.addEventListener('change', event => {
   }
 });
 
+
+window.addEventListener('beforeunload',event=>{if(isSavingWorking || isWriting()){event.preventDefault();event.returnValue='';}});
+
+window.addEventListener('offline',()=>{setSync('offline','Mất mạng — chưa thể đồng bộ');toast('Mất mạng. Giữ trang mở nếu còn thay đổi chưa lưu.');});
+window.addEventListener('online',()=>{if(!isSavingWorking)setSync('idle','Đã có mạng — tự kiểm tra Cloud định kỳ');});
+
+document.addEventListener('input',event=>{if(event.target.id==='avail-note')rememberAvailabilityNote();});
+
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&document.querySelector('.schedule-focus')&&!dialog.open&&!document.querySelector('.matrix-popover')){matrixFocusEnabled=false;render();}});
+
+(()=>{const selector='#vaschools-timetable-poster,#student-timetable-card,#weekly-menu-poster,#lesson-report-poster';let frame=0;const observer=new ResizeObserver(()=>queue());let parents=[];
+function fit(){frame=0;const posters=[...document.querySelectorAll(selector)];const next=posters.map(p=>p.parentElement);if(next.length!==parents.length||next.some((p,i)=>p!==parents[i])){observer.disconnect();parents=next;parents.forEach(p=>observer.observe(p));}
+for(const p of posters){const host=p.parentElement;host.classList.add('sheet-preview-frame');const width=host.clientWidth;const style=getComputedStyle(host);const available=width-parseFloat(style.paddingLeft||0)-parseFloat(style.paddingRight||0);const natural=p.offsetWidth;if(available>0&&natural>0)p.style.setProperty('--poster-preview-scale',String(Math.min(1,available/natural)));}}
+function queue(){if(!frame)frame=requestAnimationFrame(fit);}new MutationObserver(queue).observe(document.querySelector('#app'),{childList:true,subtree:true});window.addEventListener('resize',queue);document.fonts.ready.then(queue);queue();})();

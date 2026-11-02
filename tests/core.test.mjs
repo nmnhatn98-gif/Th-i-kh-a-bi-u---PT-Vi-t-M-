@@ -33,7 +33,8 @@ import {
   subjectTrack,
   recordChange,
   undoChange,
-  formatHistoryTime
+  formatHistoryTime,
+  getOnboardingSubjects
 } from '../src/core.js';
 
 test('1. Khung gốc: 17 lớp, 45 tiết, 227 ô cố định (sau khi gỡ 62 ô TA ESL & CLB theo yêu cầu), giờ bắt đầu/kết thúc đúng nguồn', () => {
@@ -917,7 +918,7 @@ test('50. recordChange lưu lại đầy đủ snapshot lịch trước khi thao
   assert.equal(rec.previousScheduleSnapshot.length, initialCellCount);
   assert.ok(rec.timeDisplay.includes('-'));
 
-  // Test giới hạn tối đa 50 bản ghi
+  // Test giới hạn tối đa bản ghi
   for (let i = 0; i < 60; i++) {
     state = recordChange(state, {
       actionType: 'ASSIGN',
@@ -925,7 +926,7 @@ test('50. recordChange lưu lại đầy đủ snapshot lịch trước khi thao
       actor: 'tester'
     });
   }
-  assert.equal(state.changeHistory.length, 50, 'Nhật ký chỉ giữ tối đa 50 thay đổi gần nhất');
+  assert.equal(state.changeHistory.length, 10, 'Nhật ký chỉ giữ tối đa 10 thay đổi gần nhất');
 });
 
 test('51. undoChange khôi phục chính xác timetableCells và draftSchedule về trạng thái trước thao tác', () => {
@@ -1013,6 +1014,39 @@ test('53. undoChange báo lỗi phù hợp khi nhật ký trống hoặc không 
   assert.throws(() => undoChange(state), /Không còn thao tác nào khả dụng để hoàn tác/);
 });
 
+test('54. GDCD môn học có mặt trong SEED và normalizeState tự động bảo toàn GDCD cho đăng ký giáo viên', () => {
+  const seedGdcd = SEED.subjects.find(s => s.code === 'GDCD' || s.name === 'GDCD');
+  assert.ok(seedGdcd, 'SEED.subjects phải có môn GDCD');
+  assert.equal(seedGdcd.name, 'GDCD');
 
+  // Test normalizeState adds GDCD if missing
+  const dummyState = { subjects: [{ id: 's1', code: 'TOAN', name: 'Toán' }] };
+  const normalized = normalizeState(dummyState);
+  assert.ok(normalized.subjects.some(s => s.code === 'GDCD' && s.name === 'GDCD'));
+});
 
+test('55. Môn Công nghệ có mặt trong SEED, normalizeState tự động bảo toàn và nhận diện tổ hợp TN', () => {
+  const seedCN = SEED.subjects.find(s => s.code === 'CONG_NGHE' || s.name === 'Công nghệ');
+  assert.ok(seedCN, 'SEED.subjects phải có môn Công nghệ');
+  assert.equal(seedCN.name, 'Công nghệ');
+  assert.equal(subjectTrack(seedCN), 'TN');
 
+  // Test normalizeState adds Công nghệ if missing
+  const dummyState = { subjects: [{ id: 's1', code: 'TOAN', name: 'Toán' }] };
+  const normalized = normalizeState(dummyState);
+  assert.ok(normalized.subjects.some(s => s.name === 'Công nghệ'));
+});
+
+test('56. getOnboardingSubjects luôn luôn cung cấp môn Công nghệ và GDCD cho giao diện đăng ký lần đầu', () => {
+  // Test with full SEED
+  const listFromSeed = getOnboardingSubjects(null, SEED);
+  assert.ok(listFromSeed.some(s => s.name === 'Công nghệ'), 'Phải có môn Công nghệ');
+  assert.ok(listFromSeed.some(s => s.name === 'GDCD'), 'Phải có môn GDCD');
+
+  // Test with empty/null state
+  const listEmpty = getOnboardingSubjects({}, {});
+  const cn = listEmpty.find(s => s.name === 'Công nghệ');
+  assert.ok(cn, 'Ngay cả khi state rỗng, getOnboardingSubjects vẫn phải bảo đảm có Công nghệ');
+  assert.equal(cn.name, 'Công nghệ');
+  assert.ok(cn.code === 'CN' || cn.code === 'CONG_NGHE');
+});

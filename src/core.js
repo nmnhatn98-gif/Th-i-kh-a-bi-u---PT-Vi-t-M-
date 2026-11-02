@@ -1,4 +1,4 @@
-import { contentSignature } from './write-gate.js';
+import { contentSignature, sameContent } from './write-gate.js';
 export const uid = () => globalThis.crypto.randomUUID();
 export const clone = value => structuredClone(value);
 export const keyOf = (classId, timeSlotId) => `${classId}::${timeSlotId}`;
@@ -7,14 +7,73 @@ export const keyOf = (classId, timeSlotId) => `${classId}::${timeSlotId}`;
 const compactName = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/gi,'d').toLowerCase().replace(/[^a-z0-9]/g,'');
 export function subjectTrack(subject) {
  const n=compactName(subject?.name),code=compactName(subject?.code);
- if(['cddiali','cddialy','gdktpl','cdnguvan','cdtinhoc','diali','dialy'].includes(n)||['gdktpl','gdktvapl','diali','dialy'].includes(code))return 'XH';
- if(['cdhoa','cdhoahoc','hoa','hoahoc','sinh','sinhhoc','cdtoan','cdvatli','cdvatly'].includes(n))return 'TN';
+ if(['cddiali','cddialy','gdktpl','gdcd','giaoduccongdan','cdnguvan','cdtinhoc','diali','dialy'].includes(n)||['gdktpl','gdktvapl','gdcd','diali','dialy'].includes(code))return 'XH';
+ if(['cdhoa','cdhoahoc','hoa','hoahoc','sinh','sinhhoc','cdtoan','cdvatli','cdvatly','congnghe','cdcongnghe','cn'].includes(n)||['cn','congnghe','cong_nghe'].includes(code))return 'TN';
  if(['toan','nguvan','van','ngoaingu','tienganh','lichsu','vatli','vatly','vatlydaitra','vatlidaitra','tinhoc','hdtnhn','hoatdongtrainghiemhuongnghiep','gddpdiali','gddpdialy','theduc','chaoco','shl','sinhhoatlop','taesl','clb'].includes(n)||['chaoco','hdtn_hn','ta_esl','clb'].includes(code))return 'COMMON';
  return null;
 }
 export function subjectsForClass(state,classId,track='') {
  const cls=state.classes.find(c=>c.id===classId);
  return state.subjects.filter(s=>cls?.grade!==11 || (subjectTrack(s) && (!track || subjectTrack(s)===track)));
+}
+// One integrated-subject component per class/day, across morning and afternoon.
+export function dailySubjectComponent(subject) {
+ const names=[subject?.name,subject?.code].map(compactName);
+ for(const n of names){
+  const science=n.replace(/^knht/,'khtn');
+  if(/^khtn(li|ly|vatli|vatly)$/.test(science))return {group:'KHTN',part:'li'};
+  if(/^khtn(hoa|hoahoc)$/.test(science))return {group:'KHTN',part:'hoa'};
+  if(/^khtn(sinh|sinhhoc)$/.test(science))return {group:'KHTN',part:'sinh'};
+  if(/^(lsdl|lsdia|lichsudiali|lichsudialy)(dia|diali|dialy)$/.test(n))return {group:'LS-ĐL',part:'dia'};
+  if(/^(lsdl|lsdia|lichsudiali|lichsudialy)(su|lichsu)$/.test(n))return {group:'LS-ĐL',part:'su'};
+ }
+ return null;
+}
+export function dailySubjectViolations(state,cells=state.timetableCells||[]) {
+ const groups=new Map();
+ for(const cell of allLessons(state,cells)){
+  const cls=state.classes.find(c=>c.id===cell.classId);
+  if(!cls||cls.grade<6||cls.grade>9)continue;
+  const component=dailySubjectComponent(state.subjects.find(s=>s.id===cell.subjectId));
+  const day=state.timeSlots.find(s=>s.id===cell.timeSlotId)?.dayOfWeek;
+  if(!component||day===undefined)continue;
+  const key=`${cls.id}:${day}:${component.group}`;
+  if(!groups.has(key))groups.set(key,{key,classId:cls.id,day,group:component.group,parts:new Map()});
+  groups.get(key).parts.set(component.part,state.subjects.find(s=>s.id===cell.subjectId)?.name);
+ }
+ return [...groups.values()].filter(g=>g.parts.size>1);
+}
+export function sessionAndRoboticsViolations(state,cells=state.timetableCells||[]) {
+ const subjects=new Map((state.subjects||[]).map(s=>[s.id,s])),slots=new Map((state.timeSlots||[]).map(s=>[s.id,s])),classes=new Map((state.classes||[]).map(c=>[c.id,c]));
+ const daily=new Map(),robotics=new Map(),violations=[];
+ for(const lesson of allLessons(state,cells)){
+  const slot=slots.get(lesson.timeSlotId),subject=subjects.get(lesson.subjectId);if(!slot||!subject||!classes.has(lesson.classId))continue;
+  const component=dailySubjectComponent(subject),identity=component?component.group+':'+component.part:compactName(subject.name||subject.code||subject.id);
+  const key=lesson.classId+':'+slot.dayOfWeek+':'+identity;
+  if(!daily.has(key))daily.set(key,[]);daily.get(key).push({lesson,slot,subject});
+  if([subject.name,subject.code].some(n=>/^airobotics?$/.test(compactName(n)))){if(!robotics.has(slot.id))robotics.set(slot.id,[]);robotics.get(slot.id).push({lesson,slot,subject});}
+ }
+ for(const [key,group] of daily)for(const a of group.filter(x=>x.slot.session==='MORNING'))for(const b of group.filter(x=>x.slot.session==='AFTERNOON')){
+  // Only the adjacent morning-5 / afternoon-1 pair may bridge sessions.
+  // Any additional occurrence still conflicts through its own cross-session pair.
+  if(Number(a.slot.period)===5&&Number(b.slot.period)===1)continue;
+  violations.push({key:'session:'+key+':'+a.slot.id+':'+b.slot.id,message:`Cảnh báo trùng môn: lớp ${classes.get(a.lesson.classId).name}, Thứ ${a.slot.dayOfWeek}, môn ${a.subject.name} trùng buổi sáng (tiết ${a.slot.period}) và buổi chiều (tiết ${b.slot.period}). Chỉ cho phép tiết đôi nối tiết 5 buổi sáng với tiết 1 buổi chiều; các trường hợp khác chỉ xếp trong một buổi.`});
+ }
+ for(const [slotId,group] of robotics)for(let i=0;i<group.length;i++)for(let j=i+1;j<group.length;j++)if(group[i].lesson.classId!==group[j].lesson.classId){
+  const a=group[i],b=group[j],pair=[a.lesson.classId,b.lesson.classId].sort().join(':');violations.push({key:'robotics:'+slotId+':'+pair,message:`AI-Robotics: Thứ ${a.slot.dayOfWeek}, ${a.slot.session==='MORNING'?'sáng':'chiều'} tiết ${a.slot.period} đã xếp cho ${classes.get(a.lesson.classId).name}. Không được xếp đồng thời cho ${classes.get(b.lesson.classId).name}, kể cả khác giáo viên.`});
+ }
+ return violations;
+}
+export function assertSessionAndRoboticsRules(state,cells=state.timetableCells,previousCells=[]){
+ const previous=new Set(sessionAndRoboticsViolations(state,previousCells).map(v=>v.key));const violation=sessionAndRoboticsViolations(state,cells).find(v=>!previous.has(v.key));if(violation)throw Error(violation.message);
+}
+export function assertDailySubjectRules(state,cells=state.timetableCells,previousCells=[]) {
+ const old=new Map(dailySubjectViolations(state,previousCells).map(v=>[v.key,v]));
+ const violation=dailySubjectViolations(state,cells).find(v=>!old.has(v.key)||[...v.parts.keys()].some(p=>!old.get(v.key).parts.has(p)));
+ if(violation){
+  const cls=state.classes.find(c=>c.id===violation.classId);
+  throw Error(`Lớp ${cls?.name||violation.classId}, Thứ ${violation.day}: chỉ được xếp một phân môn ${violation.group} trong ngày (cả sáng và chiều). Đang có: ${[...violation.parts.values()].join(', ')}.`);
+ }
 }
 export function jointPartner(state,classId,subjectId) {
  const subject=state.subjects.find(s=>s.id===subjectId);
@@ -26,7 +85,7 @@ export function jointPartner(state,classId,subjectId) {
 }
 export function cellLessons(state,cell) {
  if(!cell)return [];
- return [{...cell,parallelLessons:undefined,track:subjectTrack(state.subjects.find(s=>s.id===cell.subjectId))||'COMMON'},...(cell.parallelLessons||[]).map(l=>({...cell,...l,id:cell.id,parallelLessons:undefined}))];
+ return [{...cell,parallelLessons:undefined,track:subjectTrack(state.subjects.find(s=>s.id===cell.subjectId))||'COMMON'},...(cell.parallelLessons||[]).map(l=>({...cell,...l,id:cell.id,parallelLessons:undefined,isSubstitute:Boolean(l.isSubstitute),substituteForTeacherId:l.substituteForTeacherId||''}))];
 }
 export function allLessons(state,cells=state.timetableCells||[]) {return cells.flatMap(c=>cellLessons(state,c));}
 export function validJointPair(state,a,b){return a.subjectId===b.subjectId && a.teacherId===b.teacherId && a.timeSlotId===b.timeSlotId && jointPartner(state,a.classId,a.subjectId)?.id===b.classId;}
@@ -119,7 +178,7 @@ export function getAssignedTeacher(state, classId, subjectId) {
   return null;
 }
 
-export function putCell(state,cell,{allowConflict=false}={}) {
+export function putCell(state,cell,{allowConflict=false,updateAssignments=true}={}) {
  if(!state.classes.some(c=>c.id===cell.classId)||!state.timeSlots.some(s=>s.id===cell.timeSlotId)||!cell.subjectId)throw Error('Lớp, môn hoặc tiết học không hợp lệ.');
  let subjects = state.subjects || [];
  if(!subjects.some(s=>s.id===cell.subjectId)) {
@@ -133,7 +192,7 @@ export function putCell(state,cell,{allowConflict=false}={}) {
  let saved={...cell,id:previous?.id||uid()};delete saved.parallelLessons;
  if(cls.grade===11&&track!=='COMMON'){
    const others=cellLessons(state,previous).filter(l=>l.track!==track&&l.track!=='COMMON');
-   saved.track=track;if(others.length)saved.parallelLessons=others.map(l=>({track:l.track,subjectId:l.subjectId,teacherId:l.teacherId,note:l.note||''}));
+   saved.track=track;if(others.length)saved.parallelLessons=others.map(l=>({track:l.track,subjectId:l.subjectId,teacherId:l.teacherId,note:l.note||'',isSubstitute:Boolean(l.isSubstitute),substituteForTeacherId:l.substituteForTeacherId||''}));
  }
  let cells=state.timetableCells.filter(c=>c!==previous);const partner=jointPartner(state,cell.classId,cell.subjectId);
  if(partner){const other=cells.find(c=>c.classId===partner.id&&c.timeSlotId===cell.timeSlotId);
@@ -142,9 +201,21 @@ export function putCell(state,cell,{allowConflict=false}={}) {
    cells=cells.filter(c=>c!==other);cells.push({...saved,id:other?.id||uid(),classId:partner.id});
  }else if(previous){const oldPartner=jointPartner(state,previous.classId,previous.subjectId);if(oldPartner){const old=cells.find(c=>c.classId===oldPartner.id&&c.timeSlotId===cell.timeSlotId&&validJointPair(state,previous,c));if(old?.locked)throw Error('Ô lớp ghép đang khóa.');cells=cells.filter(c=>c!==old);}}
  cells.push(saved);
+ assertSessionAndRoboticsRules(state,cells,state.timetableCells);
+ assertDailySubjectRules(state,cells.filter(c=>c.classId===cell.classId&&state.timeSlots.find(s=>s.id===c.timeSlotId)?.dayOfWeek===state.timeSlots.find(s=>s.id===cell.timeSlotId)?.dayOfWeek));
  if(!allowConflict&&findConflicts(state,cells).some(g=>g.some(c=>c.timeSlotId===cell.timeSlotId&&[cell.classId,partner?.id].includes(c.classId))))throw Error('Giáo viên đã có lịch tại lớp khác trong tiết này.');
- const teachers=state.teachers.map(t=>{const assignments=[...(t.assignments||[])];for(const c of allLessons(state,cells.filter(x=>x.timeSlotId===cell.timeSlotId&&[cell.classId,partner?.id].includes(x.classId))))if(c.teacherId===t.id&&!assignments.some(a=>a.classId===c.classId&&a.subjectId===c.subjectId))assignments.push({classId:c.classId,subjectId:c.subjectId});return {...t,assignments};});
+ const teachers=updateAssignments?state.teachers.map(t=>{const assignments=[...(t.assignments||[])];for(const c of allLessons(state,cells.filter(x=>x.timeSlotId===cell.timeSlotId&&[cell.classId,partner?.id].includes(x.classId))))if(c.teacherId===t.id&&!c.isSubstitute&&!assignments.some(a=>a.classId===c.classId&&a.subjectId===c.subjectId))assignments.push({classId:c.classId,subjectId:c.subjectId});return {...t,assignments};}):state.teachers;
  return {...state,subjects,teachers,timetableCells:cells,draftSchedule:clone(cells)};
+}
+export function assignSubstituteLesson(state,{classId,timeSlotId,subjectId,teacherId,note}) {
+ if(!teacherId||!state.teachers.some(t=>t.id===teacherId))throw Error('Hãy chọn giáo viên có trong danh mục để ghi nhận lịch dạy thực tế.');
+ if(!state.subjects.some(s=>s.id===subjectId))throw Error('Hãy chọn môn học có trong danh mục.');
+ const parent=state.timetableCells.find(c=>c.classId===classId&&c.timeSlotId===timeSlotId);
+ const previous=cellLessons(state,parent).find(l=>l.subjectId===subjectId);
+ const official=getAssignedTeacher(state,classId,subjectId);
+ const original=previous?.substituteForTeacherId||official?.id||previous?.teacherId||'';
+ if(original===teacherId)throw Error('Đây là giáo viên được phân công chính. Hãy chọn người khác để dạy thay hoặc dùng gợi ý phân công để khôi phục.');
+ return putCell(state,{classId,timeSlotId,subjectId,teacherId,note:note??previous?.note??'',locked:false,isSubstitute:true,substituteForTeacherId:original},{updateAssignments:false});
 }
 export function deleteCell(state,classId,timeSlotId,track='') {
  const existing=state.timetableCells.find(c=>c.classId===classId&&c.timeSlotId===timeSlotId);if(existing?.locked)throw Error('Ô này đang khóa. Hãy mở khóa trước khi xóa.');
@@ -355,6 +426,41 @@ export function normalizeState(state) {
     }
   }
 
+  if (Array.isArray(state.subjects)) {
+    const hasGdcd = state.subjects.some(s =>
+      s.id === 'subj_gdcd' ||
+      (s.code || '').toUpperCase() === 'GDCD' ||
+      (s.name || '').toUpperCase() === 'GDCD' ||
+      (s.name || '').toLowerCase().includes('công dân')
+    );
+    if (!hasGdcd) {
+      state.subjects.push({
+        id: 'subj_gdcd',
+        code: 'GDCD',
+        name: 'GDCD',
+        color: '#0ea5e9'
+      });
+    }
+
+    const hasCongNghe = state.subjects.some(s =>
+      s.id === 'subj_cong_nghe' ||
+      s.id === 'subj_congnghe' ||
+      (s.code || '').toUpperCase() === 'CONG_NGHE' ||
+      (s.code || '').toUpperCase() === 'CN' ||
+      (s.code || '').toUpperCase() === 'CONGNGHE' ||
+      compactName(s.name) === 'congnghe' ||
+      (s.name || '').toLowerCase().includes('công nghệ')
+    );
+    if (!hasCongNghe) {
+      state.subjects.push({
+        id: 'subj_cong_nghe',
+        code: 'CONG_NGHE',
+        name: 'Công nghệ',
+        color: '#10b981'
+      });
+    }
+  }
+
   if (Array.isArray(state.timetableCells)) {
     state.timetableCells = filterRemovedFixedCells(state.timetableCells);
   }
@@ -435,6 +541,8 @@ export function normalizeState(state) {
 
   if (!Array.isArray(state.changeHistory)) {
     state.changeHistory = [];
+  } else {
+    state.changeHistory = state.changeHistory.slice(0, 10);
   }
 
   return state;
@@ -510,6 +618,38 @@ export function validateState(state) {
   }
   if (!Array.isArray(state.versions)) throw Error('Danh sách phiên bản không hợp lệ.');
   return state;
+}
+
+export function getOnboardingSubjects(state = null, seed = null) {
+  const map = new Map();
+  const seedList = seed?.subjects || [];
+  for (const s of seedList) {
+    if (s && s.name) map.set(s.name.trim().toLowerCase(), { ...s });
+  }
+  if (Array.isArray(state?.subjects)) {
+    for (const s of state.subjects) {
+      if (s && s.name) map.set(s.name.trim().toLowerCase(), { ...s });
+    }
+  }
+  if (!map.has('công nghệ') && !map.has('cong nghe')) {
+    map.set('công nghệ', {
+      id: 'subj_cong_nghe',
+      code: 'CN',
+      name: 'Công nghệ',
+      color: '#10b981'
+    });
+  }
+  if (!map.has('gdcd')) {
+    map.set('gdcd', {
+      id: 'subj_gdcd',
+      code: 'GDCD',
+      name: 'GDCD',
+      color: '#0ea5e9'
+    });
+  }
+  const list = Array.from(map.values());
+  list.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'vi'));
+  return list;
 }
 
 export function validateSnapshot(snapshot) {
@@ -967,7 +1107,7 @@ export const TEACHER_TEMPLATE_ROWS = [
 export function areTimetablesContentEqual(a,b) {
   if(a===b)return true;
   if(!a||!b)return false;
-  return contentSignature(normalizeState(a))===contentSignature(normalizeState(b));
+  return sameContent(normalizeState(a),normalizeState(b));
 }
 
 export function arePublishedContentEqual(existingPublishedData, newPublishedData) {
@@ -1379,8 +1519,8 @@ export function recordChange(state, {
   };
 
   const existingHistory = Array.isArray(state.changeHistory) ? state.changeHistory : [];
-  // Giữ lại 50 thay đổi gần nhất
-  const nextHistory = [historyRecord, ...existingHistory].slice(0, 50);
+  // Giữ lại 10 thay đổi gần nhất
+  const nextHistory = [historyRecord, ...existingHistory].slice(0, 10);
 
   return {
     ...state,
@@ -1437,7 +1577,7 @@ export function undoChange(state, changeId = null) {
     undone: false
   };
 
-  const updatedHistory = [undoRecord, ...history].slice(0, 50);
+  const updatedHistory = [undoRecord, ...history].slice(0, 10);
 
   return {
     ...state,

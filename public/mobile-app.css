@@ -1,0 +1,11 @@
+@media screen and (max-width:600px){
+.topbar{height:auto;min-height:0;display:flex;flex-direction:column;align-items:stretch;gap:8px;padding:12px 14px;}
+.topbar>span{display:block!important;white-space:normal;font-size:14px;line-height:1.4;}
+.topbar>div{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0;width:100%;}
+.topbar .year{display:block;flex:1 1 100%;white-space:normal;line-height:1.5;font-size:12px;}
+.topbar .workspace-switcher{flex:1 1 100%;min-width:0;max-width:100%;}
+.topbar .workspace-switcher select{min-width:0;flex:1;width:100%;}
+.topbar .sync-status{flex:1 1 auto;white-space:normal;}
+.topbar .user-topbar-profile{flex:1 1 auto;min-width:0;justify-content:space-between;}
+.topbar .user-email-text{overflow-wrap:anywhere;white-space:normal;}
+}
