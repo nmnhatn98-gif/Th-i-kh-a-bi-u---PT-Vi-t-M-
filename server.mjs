@@ -1,4 +1,5 @@
 import {createLessonReports} from './server/lesson-reports.mjs';
+import {createAttendance} from './server/attendance.mjs';
 import {createPushService,validCronSecret} from './server/push.mjs';
 import {readJsonBody as body} from './server/json-body.mjs';
 import {suggestSchedule} from './server/ai-schedule.mjs';
@@ -12,6 +13,7 @@ if(url&&!/^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i.test(url))throw Error('SUPAB
 const store=url&&key?new SupabaseStore(url,key):null,verifyToken=createFirebaseVerifier(project);
 const service=store?createService({store,verifyToken,ownerEmail:owner}):null;
 const lessonReports=store?createLessonReports({store,verifyToken,ownerEmail:owner}):null;
+const attendance=store?createAttendance({store,verifyToken,ownerEmail:owner}):null;
 const push=store?createPushService({store,verifyToken,publicKey:process.env.PUSH_PUBLIC_KEY,privateKey:process.env.PUSH_PRIVATE_KEY}):null;
 const mime={'.webmanifest':'application/manifest+json; charset=utf-8','.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.json':'application/json; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon'};
 function send(res,status,value){let body=Buffer.from(JSON.stringify(value));const headers={'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',Vary:'Accept-Encoding'};if(body.length>4096&&/\bgzip\b/.test(res.req?.headers['accept-encoding']||'')){body=gzipSync(body,{level:3});headers['Content-Encoding']='gzip';}res.writeHead(status,headers);res.end(body);}
@@ -25,6 +27,11 @@ const server=http.createServer(async(req,res)=>{
    const token=req.headers.authorization?.match(/^Bearer ([^\s]+)$/)?.[1];if(!token){send(res,401,{error:'Vui lòng đăng nhập Google.',code:'unauthenticated'});return;}
    if(req.method==='GET'&&route.pathname==='/api/push/config'){send(res,200,await push.config(token));return;}
    if(req.method==='POST'&&['/api/push/subscribe','/api/push/unsubscribe','/api/push/test'].includes(route.pathname)){send(res,200,await push[route.pathname.split('/').pop()](token,await body(req)));return;}
+   if(req.method==='GET'&&route.pathname==='/api/attendance/teaching'){send(res,200,await attendance.teaching(token,route.searchParams.get('date')));return;}
+   if(req.method==='GET'&&route.pathname==='/api/attendance/statistics'){send(res,200,await attendance.statistics(token,Object.fromEntries(route.searchParams)));return;}
+   if(req.method==='GET'&&route.pathname==='/api/attendance/overview'){send(res,200,await attendance.overview(token,route.searchParams.get('date')));return;}
+   if(req.method==='GET'&&route.pathname==='/api/attendance'){send(res,200,await attendance.read(token,route.searchParams.get('date'),route.searchParams.get('classId')));return;}
+   if(req.method==='POST'&&route.pathname==='/api/attendance'){send(res,200,await attendance.write(token,await body(req)));return;}
    if(req.method==='GET'&&route.pathname==='/api/lesson-reports'){send(res,200,await lessonReports.read(token,route.searchParams.get('week')));return;}
    if(req.method==='POST'&&route.pathname==='/api/lesson-reports'){send(res,200,await lessonReports.write(token,await body(req)));return;}
    if(req.method==='POST'&&route.pathname==='/api/ai/suggest'){

@@ -1,4 +1,8 @@
+// Grade 11 tracks have independent availability warnings.
+import {createTeachingAttendanceView} from './teaching-attendance.js';
+import {createInspectionView} from './inspection.js';
 import {createLessonReportView} from './lesson-reports.js';
+import {createAttendanceView} from './attendance.js';
 import {createWeeklyMenu} from './weekly-menu.js';
 import {matchesSuggestionSearch} from './suggestion-search.js';
 import {publishedExcel} from './published-excel.js';
@@ -11,7 +15,7 @@ import {authorizeCalendar,askScheduleAI} from './firebase.js';
 import {cellLessons,allLessons,subjectTrack,subjectsForClass,lessonBusy,assertDailySubjectRules,assertSessionAndRoboticsRules} from './core.js';
 import { saveDriveFile } from './drive-backup.js';
 import { contentSignature } from './write-gate.js';
-import * as XLSX from 'xlsx';
+import {loadXlsx,html2canvas,sheetCanvasSize} from './export-libraries.js';
 import { SEED } from './seed.js';
 import {
   uid,
@@ -60,7 +64,6 @@ import {
   formatHistoryTime,
   getOnboardingSubjects
 } from './core.js';
-import html2canvas from 'html2canvas';
 import {
   auth,
   db,
@@ -243,6 +246,7 @@ let isSidebarCollapsed = (() => {
 // Sub-view specific filters
 let selectedHomeroomClassId = '';
 let personalViewMode = 'week'; // 'week' | 'day'
+let adminScheduleTeacherId='',adminScheduleSource='published',adminScheduleQuery='';
 let homeroomExportTrack = 'XH'; // 'XH' | 'TN' | 'ALL'
 let homeroomShowTeacher = false; // default false (pure subject name for student view)
 
@@ -298,6 +302,9 @@ const fmt = date => (date ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short
 const fmtDateOnly = date => (date ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short' }).format(new Date(date)) : '—');
 
 export const titles = {
+  attendance: 'Điểm danh học sinh',
+  teaching_attendance: 'Điểm danh lớp có tiết dạy',
+  inspection: 'Giám thị · Điểm danh toàn trường',
   overview: 'Tổng quan hệ thống',
   matrix: 'Thời khóa biểu toàn trường',
   teacher: 'Lịch giáo viên',
@@ -315,6 +322,8 @@ export const titles = {
   homeroom_overview: 'Tổng quan lớp chủ nhiệm',
   homeroom_class: 'Thời khóa biểu lớp chủ nhiệm',
   my_teaching: 'Lịch giảng dạy cá nhân',
+  teacher_schedules: 'Lịch dạy giáo viên',
+  publication_history: 'Kho thời khóa biểu theo tuần',
   published_all: 'Thời khóa biểu toàn trường đã chốt',
   visiting_overview: 'Tổng quan giáo viên thỉnh giảng',
   availability: 'Đăng ký thời gian có thể dạy',
@@ -388,6 +397,7 @@ function isVisitingTeacher() {
 }
 
 function getAvailableWorkspaces() {
+  if(currentUserProfile?.role==='INSPECTOR') return [{id:'INSPECTOR',label:'Giám thị'}];
   const ws = [];
   if (isAdmin()) ws.push({ id: 'ADMIN', label: 'Quản trị hệ thống' });
   if (isSchedulerRole()) ws.push({ id: 'SCHEDULER', label: 'Không gian xếp lịch' });
@@ -398,6 +408,7 @@ function getAvailableWorkspaces() {
 }
 
 function determineDefaultWorkspace() {
+  if(currentUserProfile?.role==='INSPECTOR') return 'INSPECTOR';
   if (isAdmin()) return 'ADMIN';
   if (isSchedulerRole()) return 'SCHEDULER';
   if (isHomeroomTeacher()) return 'HOMEROOM';
@@ -406,6 +417,7 @@ function determineDefaultWorkspace() {
 }
 
 function canEditWorking() {
+  if(view==='publication_history')return false;
   return (currentWorkspace === 'ADMIN' || currentWorkspace === 'SCHEDULER') && activeVersion === 'draft' && !showPublished && isSchedulerRole();
 }
 
@@ -617,6 +629,9 @@ function initDataSubscriptions() {
     err => handleFirestoreError(err, OperationType.GET, 'timetables/published')
   );
 
+  // Inspectors need the published school header and attendance only.
+  if(currentUserProfile?.role==='INSPECTOR')return;
+
   // 2. Working timetable listener (SCHEDULER / ADMIN / OWNER)
   if (isSchedulerRole()) {
     unsubWorking = onSnapshot(
@@ -760,6 +775,8 @@ function handleAuthState() {
     stopAllSubscriptions();
     if (unsubUser) {unsubUser(); unsubUser=null;}
     currentUserProfile=null;
+    adminScheduleTeacherId='';adminScheduleSource='published';adminScheduleQuery='';
+    publicationHistory={identity:'',items:null,selected:'',publication:null,loading:false,error:'',generation:publicationHistory.generation+1};
     accountsList=[]; requestsList=[]; availabilityDoc=null;availabilityRecords=[];availabilityDrafts=new Map();selectedAvailabilityWeek='';selectedAvailabilityScope='';schedulerRegistrationWeek='';availabilityLoadState='loading';
     serverConfirmedWorking=null; serverConfirmedAvailability=null;
     publishedTimetable=null; currentRevision=0;
@@ -831,8 +848,8 @@ function handleAuthState() {
 
         if (isFirstLoad) {
           currentWorkspace = determineDefaultWorkspace();
-          view = currentWorkspace === 'HOMEROOM' ? 'homeroom_overview' : currentWorkspace === 'VISITING' ? 'visiting_overview' : currentWorkspace === 'TEACHER' ? 'my_teaching' : currentWorkspace === 'ADMIN' ? 'overview' : 'matrix';
-          if(new URLSearchParams(location.search).get('open')==='my_teaching'&&data.teacherId){currentWorkspace='TEACHER';view='my_teaching';history.replaceState(null,'',location.pathname);}
+          view = currentWorkspace === 'INSPECTOR' ? 'inspection' : currentWorkspace === 'HOMEROOM' ? 'homeroom_overview' : currentWorkspace === 'VISITING' ? 'visiting_overview' : currentWorkspace === 'TEACHER' ? 'my_teaching' : currentWorkspace === 'ADMIN' ? 'overview' : 'matrix';
+          if(new URLSearchParams(location.search).get('open')==='my_teaching'&&data.teacherId&&data.role!=='INSPECTOR'){currentWorkspace='TEACHER';view='my_teaching';history.replaceState(null,'',location.pathname);}
           if (isHomeroomTeacher()) {
             selectedHomeroomClassId = currentUserProfile.homeroomClassIds[0] || '';
           }
@@ -909,7 +926,11 @@ function renderAdminWorkspace() {
 
   const adminMenu = [
     ['overview', '📊', 'Tổng quan'],
+    ['attendance', '✅', 'Điểm danh & Học sinh'],
+    ['inspection','📋','Giám thị · Thống kê điểm danh'],
     ['matrix', '▦', 'Ma trận toàn trường'],
+    ['publication_history', '🗂️', 'Kho TKB theo tuần'],
+    ['teacher_schedules', '◷', 'Lịch dạy giáo viên'],
     ['class_hub', '🖼️', `TKB, Báo bài & Thực đơn ${lessonReportsView.badge() ? `<b class="badge">${lessonReportsView.badge()}</b>` : ''}`],
     ['catalog', '▤', 'Danh mục xếp lịch'],
     ['accounts', '👥', 'Tài khoản & Phân quyền'],
@@ -1014,7 +1035,9 @@ function renderAdminWorkspace() {
           </div>
         `;
       }
+      if (view === 'publication_history') return renderPublicationHistory();
       if (view === 'matrix') return renderMatrixSection(s);
+      if (view === 'teacher_schedules') return renderAdminTeacherSchedules();
       if (view === 'catalog') return catalog();
       if (view === 'accounts') return accountsPage();
       if (view === 'pending') return renderPendingProfilesPage(pendingProfiles);
@@ -1036,6 +1059,7 @@ function renderSchedulerWorkspace() {
 
   const schedulerMenu = [
     ['matrix', '▦', 'Ma trận toàn trường'],
+    ['publication_history', '🗂️', 'Kho TKB theo tuần'],
     ['class_hub', '🖼️', `TKB, Báo bài & Thực đơn ${lessonReportsView.badge() ? `<b class="badge">${lessonReportsView.badge()}</b>` : ''}`],
     ['catalog', '▤', 'Danh mục xếp lịch'],
     ['teacher_requests', '📩', `Yêu cầu đổi lịch ${requestsList.filter(r => r.status === 'PENDING').length ? `<b class="badge">${requestsList.filter(r => r.status === 'PENDING').length}</b>` : ''}`],
@@ -1046,6 +1070,7 @@ function renderSchedulerWorkspace() {
   return {
     menu: schedulerMenu,
     content: () => {
+      if (view === 'publication_history') return renderPublicationHistory();
       if (view === 'matrix') return renderMatrixSection(s);
       if (view === 'class_hub' || view === 'homeroom_class' || view === 'weekly_menu' || view === 'lesson_reports') return renderClassHubPage(s.classes || []);
       if (view === 'catalog') return catalog();
@@ -1072,7 +1097,9 @@ function renderHomeroomWorkspace() {
   const todayMyLessons = myLessons.filter(l => l.slot?.dayOfWeek === todayDay);
 
   const homeroomMenu = [
+    ['teaching_attendance','✅','Điểm danh lớp có tiết dạy'],
     ['homeroom_overview', '🏠', 'Tổng quan chủ nhiệm'],
+    ['attendance', '✅', 'Điểm danh học sinh'],
     ['class_hub', '🖼️', `TKB, Báo bài & Thực đơn ${lessonReportsView.badge() ? `<b class="badge">${lessonReportsView.badge()}</b>` : ''}`],
     ['my_teaching', '◷', 'Lịch dạy cá nhân'],
     ['availability', '📅', 'Đăng ký rảnh / bận'],
@@ -1161,6 +1188,7 @@ function renderVisitingWorkspace() {
   const myRequests = requestsList.filter(r => (r.teacherEmail || '').toLowerCase().trim() === userEmail);
 
   const visitingMenu = [
+    ['teaching_attendance','✅','Điểm danh lớp có tiết dạy'],
     ['visiting_overview', '⚡', 'Tổng quan thỉnh giảng'],
     ['my_teaching', '◷', 'Lịch dạy cá nhân'],
     ['availability', '📅', 'Đăng ký rảnh / bận'],
@@ -1235,6 +1263,7 @@ function renderVisitingWorkspace() {
 // ----------------------------------------------------
 function renderRegularTeacherWorkspace() {
   const teacherMenu = [
+    ['teaching_attendance','✅','Điểm danh lớp có tiết dạy'],
     ['my_teaching', '◷', 'Lịch dạy cá nhân'],
     ['availability', '📅', 'Đăng ký rảnh / bận'],
     ['class_hub', '🖼️', `TKB, Báo bài & Thực đơn ${lessonReportsView.badge() ? `<b class="badge">${lessonReportsView.badge()}</b>` : ''}`],
@@ -1532,6 +1561,36 @@ function renderMyTeachingView() {
   `;
 }
 
+function adminTeacherScheduleSelection(){
+ const pData=adminScheduleSource==='working'?workingDraft:publishedTimetable?.isPublished?publishedTimetable.data:null;
+ const catalog=[...new Map([...(publishedTimetable?.data?.teachers||[]),...(workingDraft.teachers||[])].map(t=>[t.id,t])).values()];
+ const fold=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/đ/g,'d');
+ const terms=fold(adminScheduleQuery).trim().split(/\s+/).filter(Boolean);
+ const teachers=catalog.filter(t=>terms.every(term=>fold(t.fullName+' '+t.code).includes(term))).sort((a,b)=>String(a.fullName||'').localeCompare(String(b.fullName||''),'vi'));
+ const selected=teachers.find(t=>t.id===adminScheduleTeacherId)||teachers[0]||null;
+ return {pData,teachers,selected,total:catalog.length};
+}
+function renderAdminTeacherSchedules(){
+ if(!isAdmin())return '<div class="alert">Chỉ quản trị viên được xem lịch dạy tất cả giáo viên.</div>';
+ const {pData,teachers,selected,total}=adminTeacherScheduleSelection(),lessons=pData&&selected?getTeacherLessons(selected.id,pData):[];
+ const periods=new Set(lessons.map(l=>l.slot?.id).filter(Boolean)).size,classCount=new Set(lessons.map(l=>l.cell.classId)).size;
+ return `<section class="card personal-teaching-card"><div class="card-title"><div><h2>Lịch dạy tất cả giáo viên</h2><p class="muted">Bao gồm giáo viên cơ hữu và thỉnh giảng trong danh mục, kể cả chưa có tài khoản đăng nhập. Chỉ xem, không thay đổi thời khóa biểu.</p></div></div>
+ <div class="attendance-toolbar"><label>Nguồn thời khóa biểu<select id="admin-schedule-source"><option value="published" ${adminScheduleSource==='published'?'selected':''}>Lịch đã công bố</option><option value="working" ${adminScheduleSource==='working'?'selected':''}>Bản đang xếp</option></select></label>
+ <label>Tìm giáo viên<input id="admin-schedule-search" type="search" placeholder="Nhập tên hoặc mã giáo viên" value="${esc(adminScheduleQuery)}"></label>
+ <label>Giáo viên<select id="admin-schedule-teacher" ${!teachers.length?'disabled':''}>${teachers.map(t=>`<option value="${esc(t.id)}" ${t.id===selected?.id?'selected':''}>${esc(t.fullName)} · ${esc(t.code||'')}</option>`).join('')||'<option>Không tìm thấy giáo viên</option>'}</select></label><span class="muted">${teachers.length}/${total} giáo viên</span></div>
+ ${!pData?'<div class="notice">Chưa có lịch đã công bố. Chọn Bản đang xếp để xem lịch dự kiến.</div>':!selected?'<p>Không có giáo viên phù hợp. Hãy thử tên hoặc mã khác.</p>':`<div class="card-title personal-teaching-toolbar"><div><h2>Lịch giảng dạy của: ${esc(selected.fullName)}</h2><small>Mã GV: ${esc(selected.code||'—')} · <strong>${periods} tiết</strong> · ${classCount} lớp</small><p class="muted">${adminScheduleSource==='working'?'BẢN ĐANG XẾP · Chưa công bố':'LỊCH ĐÃ CÔNG BỐ'} · ${esc(posterWeekInfo(pData.school).caption)}</p></div><div class="button-row"><div class="tabs-nav" style="margin:0"><button data-switch-personal-mode="week" class="${personalViewMode==='week'?'active':''}">Chế độ tuần</button><button data-switch-personal-mode="day" class="${personalViewMode==='day'?'active':''}">Danh sách theo ngày</button></div><button data-action="admin-teacher-jpg">📷 Tải lịch dạy (.JPG)</button></div></div>${!lessons.length?'<p class="notice">Giáo viên chưa có tiết dạy trong nguồn lịch đã chọn.</p>':''}${personalViewMode==='week'?renderPersonalWeeklyGrid(lessons,pData):renderPersonalDailyAgenda(lessons)}`}</section>`;
+}
+document.addEventListener('change',event=>{
+ if(view!=='teacher_schedules'||!isAdmin())return;
+ if(event.target.id==='admin-schedule-source'){adminScheduleSource=event.target.value==='working'?'working':'published';render();}
+ if(event.target.id==='admin-schedule-teacher'){adminScheduleTeacherId=event.target.value;render();}
+});
+document.addEventListener('input',event=>{
+ if(view!=='teacher_schedules'||!isAdmin()||event.target.id!=='admin-schedule-search')return;
+ const start=event.target.selectionStart,end=event.target.selectionEnd;adminScheduleQuery=event.target.value;render();
+ const input=document.querySelector('#admin-schedule-search');input?.focus();if(input&&start!==null)input.setSelectionRange(start,end);
+});
+
 function renderPersonalWeeklyGrid(myLessons, pData) {
   const lessonsMap = new Map();
   for(const lesson of myLessons){const id=lesson.slot?.id;if(!lessonsMap.has(id))lessonsMap.set(id,[]);lessonsMap.get(id).push(lesson);}
@@ -1593,20 +1652,21 @@ function renderPersonalWeeklyGrid(myLessons, pData) {
 }
 
 let personalJpgBusy=false;
-async function downloadPersonalTeachingJpg(){
+async function downloadPersonalTeachingJpg(options={}){
   if(personalJpgBusy)return;
-  if(!publishedTimetable?.isPublished||!currentUserProfile?.teacherId){toast('Chưa có lịch dạy đã công bố để tải.');return;}
+  const adminExport=isAdmin()&&view==='teacher_schedules'&&options.teacherId&&options.pData;
+  if(!adminExport&&(!publishedTimetable?.isPublished||!currentUserProfile?.teacherId)){toast('Chưa có lịch dạy đã công bố để tải.');return;}
   personalJpgBusy=true;
-  const button=document.querySelector('[data-action="personal-jpg"]');
+  const button=document.querySelector(adminExport?'[data-action="admin-teacher-jpg"]':'[data-action="personal-jpg"]');
   if(button){button.disabled=true;button.textContent='Đang tạo ảnh…';}
-  const pData=publishedTimetable.data,teacherId=currentUserProfile.teacherId;
-  const teacher=(pData.teachers||[]).find(t=>t.id===teacherId);
+  const pData=adminExport?options.pData:publishedTimetable.data,teacherId=adminExport?options.teacherId:currentUserProfile.teacherId;
+  const teacher=(pData.teachers||[]).find(t=>t.id===teacherId)||(adminExport?adminTeacherScheduleSelection().selected:null);
   const teacherName=teacher?.fullName||currentUserProfile.displayName||'Giáo viên';
   const lessons=getTeacherLessons(teacherId,pData),week=posterWeekInfo(pData.school);
   const sheet=document.createElement('section');
   sheet.className='personal-jpg-sheet';
   sheet.style.cssText='position:fixed;left:-20000px;top:0;width:1100px;max-width:none;padding:24px;box-sizing:border-box;background:#fff;color:#184239;font-family:Arial,sans-serif;';
-  sheet.innerHTML=`<header style="text-align:center;margin-bottom:20px"><h2 style="font-size:26px;margin:0 0 8px">LỊCH GIẢNG DẠY CÁ NHÂN</h2><strong style="font-size:20px">${esc(teacherName)}</strong><p style="margin:8px 0;font-size:16px">${esc(pData.school?.name||'')} · ${esc(week.caption)}</p></header>${renderPersonalWeeklyGrid(lessons,pData)}`;
+  sheet.innerHTML=`<header style="text-align:center;margin-bottom:20px"><h2 style="font-size:26px;margin:0 0 8px">LỊCH GIẢNG DẠY CÁ NHÂN</h2><strong style="font-size:20px">${esc(teacherName)}</strong><p style="margin:8px 0;font-size:16px">${esc(pData.school?.name||'')} · ${esc(week.caption)}</p>${adminExport?`<p>${adminScheduleSource==='working'?'BẢN ĐANG XẾP · Chưa công bố':'LỊCH ĐÃ CÔNG BỐ'}</p>`:''}</header>${renderPersonalWeeklyGrid(lessons,pData)}`;
   document.body.append(sheet);
   try{
     await document.fonts.ready;
@@ -2098,23 +2158,40 @@ function renderGrade11Parts(s,cls,slot,day,cell,isReadonly,busyIndex) {
   const teacherColor = lesson?.teacherId ? getTeacherColor(s, lesson.teacherId) : (subject ? subject.color : '');
   const registration=registrationForSlot(busyIndex,lesson?.teacherId,slot.id),registeredBusy=registration?.status==='busy';
   const label=track+': '+(subject?.name||'Chưa xếp môn')+(teacher?' — '+teacher:'')+(registeredBusy?' · '+registrationDetail(registration,slot):'');
-  return `<button type="button" class="${registeredBusy?'grade11-availability-busy':''}" data-cell-drop="true" data-cell-class="${esc(cls.id)}" data-cell-slot="${esc(slot.id)}" data-cell-day="${day}" data-cell-period="${slot.period}" data-cell-track="${track}" aria-label="${esc(cls.name+', thứ '+day+', '+(slot.session==='MORNING'?'sáng':'chiều')+' tiết '+slot.period+', '+label)}" title="${esc(label)}" style="flex:1 1 0;width:50%;min-width:0;border-radius:0;${i?'border-left:1px solid var(--border);':''}${teacherColor?'--subject:'+esc(teacherColor)+';':''}" ${isReadonly?'disabled':''}>
-   ${lesson?`<span class="subject-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;width:100%;">${esc(subject?.name||'')}${cell.locked?' <span class="lock" title="Đã khóa">🔒</span>':''}</span><span class="teacher-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:3px;">${lesson.teacherId ? `<i style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${teacherColor};flex-shrink:0;"></i>` : ''}${esc(teacher||'Chưa chọn giáo viên')}</span>`:'<span class="empty-mark">'+track+' ＋</span>'}
+  return `<button type="button" class="${registeredBusy?'grade11-availability-busy':''}" data-cell-drop="true" data-cell-class="${esc(cls.id)}" data-cell-slot="${esc(slot.id)}" data-cell-day="${day}" data-cell-period="${slot.period}" data-cell-track="${track}" aria-label="${esc(cls.name+', thứ '+day+', '+(slot.session==='MORNING'?'sáng':'chiều')+' tiết '+slot.period+', '+label)}" title="${esc(label)}" style="position:relative;padding-top:10px;flex:1 1 0;width:50%;min-width:0;border-radius:0;${i?'border-left:1px solid var(--border);':''}${teacherColor?'--subject:'+esc(teacherColor)+';':''}" ${isReadonly?'disabled':''}>
+   <span class="grade11-track-label" style="position:absolute;left:3px;top:1px;font-size:7px;line-height:9px;font-weight:700;">${track}</span>${lesson?`<span class="subject-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;width:100%;">${esc(subject?.name||'')}${cell.locked?' <span class="lock" title="Đã khóa">🔒</span>':''}</span><span class="teacher-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:3px;">${lesson.teacherId ? `<i style="display:inline-block;width:5px;height:5px;border-radius:50%;background:${teacherColor};flex-shrink:0;"></i>` : ''}${esc(teacher||'Chưa chọn giáo viên')}</span>`:'<span class="empty-mark">'+track+' ＋</span>'}
   ${registeredBusy?'<span class="busy-cell-mark" aria-label="Giáo viên đã đăng ký bận">⚠ BẬN</span>':''}</button>`;
  }).join('')+'</div>';
 }
 
+let publicationHistory={identity:'',items:null,selected:'',publication:null,loading:false,error:'',generation:0};
+async function loadPublicationHistory(id=''){
+ if(!isSchedulerRole())return;const identity=currentUser?.email||'';if(publicationHistory.identity!==identity)publicationHistory={identity,items:null,selected:'',publication:null,loading:false,error:'',generation:publicationHistory.generation+1};
+ const generation=++publicationHistory.generation;publicationHistory.loading=true;publicationHistory.error='';render();
+ try{const snap=await getDoc(doc(db,'timetables',id||'publication_history'));if(generation!==publicationHistory.generation||identity!==currentUser?.email)return;
+ if(id)publicationHistory.publication=snap.data();else{publicationHistory.items=snap.data()?.items||[];publicationHistory.publication=null;publicationHistory.selected='';}
+ }catch(e){if(generation===publicationHistory.generation)publicationHistory.error=e.message;}finally{if(generation===publicationHistory.generation){publicationHistory.loading=false;render();}}
+}
+function renderPublicationHistory(){
+ if(!isSchedulerRole())return '<p>Chỉ quản trị và người xếp lịch được xem kho lịch.</p>';
+ const identity=currentUser?.email||'';if(publicationHistory.identity===identity&&publicationHistory.items===null&&publicationHistory.error)return '<section class="card"><h2>Kho TKB theo tuần</h2><p role="alert">'+esc(publicationHistory.error)+'</p><button data-publication-history-reload>Thử lại</button></section>';if(publicationHistory.identity!==identity||publicationHistory.items===null){if(!publicationHistory.loading)queueMicrotask(()=>loadPublicationHistory());return '<p>Đang tải danh sách tuần…</p>';}
+ const h=publicationHistory;
+ return '<section class="card"><h2>Kho thời khóa biểu đã công bố · Từ tuần 12</h2><p class="muted">Lưu bản công bố gần nhất của mỗi tuần, gồm đầy đủ lớp, môn, giáo viên và khung tiết tại thời điểm đó. Chỉ xem tham khảo; không thay đổi bản đang xếp.</p><div class="attendance-toolbar"><label>Chọn tuần<select id="publication-history-week" '+(h.loading?'disabled':'')+'><option value="">— Chọn tuần —</option>'+h.items.map(r=>'<option value="'+esc(r.id)+'" '+(r.id===h.selected?'selected':'')+'>Tuần '+esc(r.week)+' · '+esc(r.start)+' – '+esc(r.end)+' · '+esc(r.year)+' · '+esc(r.term)+'</option>').join('')+'</select></label><button data-publication-history-reload '+(h.loading?'disabled':'')+'>↻ Tải lại danh sách</button></div>'+(h.error?'<p role="alert">'+esc(h.error)+'</p>':'')+(h.loading?'<p>Đang tải ma trận tuần…</p>':'')+(!h.items.length?'<p>Chưa có bản công bố từ tuần 12 để lưu. Các tuần trước không được tự dựng lại.</p>':'')+'</section>'+(h.publication?.data?'<div class="notice"><strong>LỊCH LƯU TRỮ · '+esc(posterWeekInfo(h.publication.data.school).caption)+'</strong> · Chỉ xem</div>'+renderMatrixSection(normalizeState(h.publication.data)):'');
+}
+document.addEventListener('change',event=>{if(event.target.id!=='publication-history-week'||view!=='publication_history'||!isSchedulerRole())return;const row=publicationHistory.items?.find(r=>r.id===event.target.value);publicationHistory.selected=row?.id||'';publicationHistory.publication=null;if(row)void loadPublicationHistory(row.id);else render();});
+document.addEventListener('click',event=>{if(event.target.closest('[data-publication-history-reload]')&&view==='publication_history')void loadPublicationHistory();});
 function renderMatrixSection(s) {
-  const isTeacherWorkspace = (currentWorkspace !== 'ADMIN' && currentWorkspace !== 'SCHEDULER') || !isSchedulerRole() || view === 'published_all';
-  if(isTeacherWorkspace&&!publishedTimetable?.isPublished)return '<div class="card"><h2>Chưa có thời khóa biểu hiện hành</h2><p>Lịch mới sẽ hiển thị sau khi nhà trường công bố.</p></div>';
+  const historical=view==='publication_history';
+  const isTeacherWorkspace = historical || (currentWorkspace !== 'ADMIN' && currentWorkspace !== 'SCHEDULER') || !isSchedulerRole() || view === 'published_all';
+  if(isTeacherWorkspace&&!historical&&!publishedTimetable?.isPublished)return '<div class="card"><h2>Chưa có thời khóa biểu hiện hành</h2><p>Lịch mới sẽ hiển thị sau khi nhà trường công bố.</p></div>';
   const effectiveMatrixMode = isTeacherWorkspace ? 'timetable' : matrixViewMode;
-  if (isTeacherWorkspace && publishedTimetable?.isPublished && publishedTimetable?.data) {
+  if (isTeacherWorkspace && !historical && publishedTimetable?.isPublished && publishedTimetable?.data) {
     s = normalizeState(publishedTimetable.data);
   }
   const classes = (s.classes || []).filter(c => !grade || (grade === 'THCS' ? c.grade <= 9 : grade === 'THPT' ? c.grade >= 10 : String(c.grade) === grade));
   const isReadonly = isTeacherWorkspace || !canEditWorking();
-  const busyIndex=registrationSlotIndex(s,availabilityRecords);
-  const busyScheduledLessons=availabilityAlerts(s,availabilityRecords).busy;
+  const busyIndex=registrationSlotIndex(s,historical?[]:availabilityRecords);
+  const busyScheduledLessons=historical?[]:availabilityAlerts(s,availabilityRecords).busy;
   const busyLessonCount=busyScheduledLessons.length;
   const targetTeacherId = (brushMode === 'brush' && brushTeacherId && !isTeacherWorkspace) ? brushTeacherId : (selectedTeacherHighlight || teacher);
   const targetHighlightId = targetTeacherId;
@@ -2248,7 +2325,8 @@ function renderMatrixSection(s) {
           const subject = cell ? s.subjects?.find(x => x.id === cell.subjectId) : null;
           const assignedTeacherId = cell ? (cell.teacherId || cellLessons(s, cell)[0]?.teacherId) : '';
           const teacherText = cell ? cellLessons(s,cell).map(l=>text(s.teachers||[],l.teacherId,'fullName')).join(' / ') : '';
-          const busyTeachers=cellLessons(s,cell).map(l=>({name:text(s.teachers||[],l.teacherId,'fullName'),registration:registrationForSlot(busyIndex,l.teacherId,slot.id)})).filter(x=>x.registration?.status==='busy');
+          const splitGrade11=cls.grade===11&&(!cell||cellLessons(s,cell).some(l=>['TN','XH'].includes(l.track)));
+          const busyTeachers=splitGrade11?[]:cellLessons(s,cell).map(l=>({name:text(s.teachers||[],l.teacherId,'fullName'),registration:registrationForSlot(busyIndex,l.teacherId,slot.id)})).filter(x=>x.registration?.status==='busy');
           const busyTitle=busyTeachers.map(x=>x.name+': '+registrationDetail(x.registration,slot)).join('\n');
           const teacherColor = assignedTeacherId ? getTeacherColor(s, assignedTeacherId) : (subject ? subject.color : '');
           const hasTarget = !!targetHighlightId;
@@ -2263,7 +2341,7 @@ function renderMatrixSection(s) {
                        data-cell-day="${day}"
                        data-cell-period="${slot.period}"
                        style="${teacherColor ? '--subject:' + esc(teacherColor) + ';' : ''}">
-            ${cls.grade===11 && (!cell || cellLessons(s,cell).some(l=>['TN','XH'].includes(l.track))) ? renderGrade11Parts(s,cls,slot,day,cell,isReadonly,busyIndex) : `<button data-cell-class="${esc(cls.id)}"
+            ${splitGrade11 ? renderGrade11Parts(s,cls,slot,day,cell,isReadonly,busyIndex) : `<button data-cell-class="${esc(cls.id)}"
                     data-cell-slot="${esc(slot.id)}"
                     data-cell-day="${day}"
                     data-cell-period="${slot.period}"
@@ -2281,7 +2359,7 @@ function renderMatrixSection(s) {
   }
 
   const focusActive = effectiveMatrixMode === 'timetable' && !isTeacherWorkspace && !isReadonly && matrixFocusEnabled;
-  const dailyRulesNotice = effectiveMatrixMode === 'timetable' && !isTeacherWorkspace ? '<div class="notice">Quy định khối 6–9: mỗi lớp, mỗi ngày (cả sáng và chiều) chỉ học một phân môn KHTN (Lí/Hóa/Sinh) và một phân môn LS-ĐL (Sử/Địa). Có thể xếp nhiều tiết cùng phân môn trong một buổi. Toàn trường: cùng lớp không xếp một môn ở cả sáng và chiều cùng ngày, ngoại trừ tiết đôi nối tiết 5 buổi sáng và tiết 1 buổi chiều; AI-Robotics mỗi Thứ/Buổi/Tiết chỉ dành cho một lớp, kể cả khác giáo viên.</div>' : '';
+  const dailyRulesNotice = effectiveMatrixMode === 'timetable' && !isTeacherWorkspace ? '<div class="notice">Quy định khối 6–9: mỗi lớp, mỗi ngày (cả sáng và chiều) chỉ học một phân môn KHTN (Lí/Hóa/Sinh) và một phân môn LS-ĐL (Sử/Địa). Các tiết cùng môn trong một buổi phải liền kề, không xếp cách tiết. Toàn trường: cùng lớp không xếp một môn ở cả sáng và chiều cùng ngày, ngoại trừ tiết đôi nối tiết 5 buổi sáng và tiết 1 buổi chiều; AI-Robotics mỗi Thứ/Buổi/Tiết chỉ dành cho một lớp, kể cả khác giáo viên.</div>' : '';
   const trayHtml = (!isTeacherWorkspace && effectiveMatrixMode === 'timetable') ? renderAssignmentTray(s, classes) : '';
 
   return `
@@ -2751,6 +2829,7 @@ function accountsPage() {
     OWNER: '<span class="role-badge role-owner">OWNER</span>',
     ADMIN: '<span class="role-badge role-admin">ADMIN</span>',
     SCHEDULER: '<span class="role-badge role-scheduler">SCHEDULER</span>',
+    INSPECTOR: '<span class="role-badge">GIÁM THỊ</span>',
     TEACHER: '<span class="role-badge role-teacher">TEACHER</span>'
   };
 
@@ -2839,7 +2918,11 @@ function settings() {
 // Main Master Render Dispatcher
 // ----------------------------------------------------
 const lessonReportsView=createLessonReportView({context:()=>({email:currentUser?.email||'',active:currentUserProfile?.active===true,view:((isVisitingTeacher()&&['class_hub','homeroom_class','weekly_menu'].includes(view))||view==='lesson_reports'||(view==='class_hub'&&(isVisitingTeacher()||['reports','all'].includes(classHubTab))))?'lesson_reports':view,hrIds:officialHomeroomClassIds(),week:timetableWeek(publishedTimetable?.data||state)||todayWeek(),weekLabel:(publishedTimetable?.data||state).school?.currentWeek||''}),rerender:()=>render(),toast:message=>toast(message)});
-const weeklyMenu=createWeeklyMenu({context:()=>({email:currentUser?.email||'',active:currentUserProfile?.active===true&&!isVisitingTeacher(),admin:['OWNER','ADMIN'].includes(currentUserProfile?.role),view:(view==='weekly_menu'||(view==='class_hub'&&['menu','all'].includes(classHubTab)))?'weekly_menu':view}),read:async()=>{const s=await getDoc(doc(db,'timetables','weekly_menu'));return s.exists()?s.data():null;},write:data=>setDoc(doc(db,'timetables','weekly_menu'),data),rerender:()=>render(),toast:message=>toast(message)});
+const weeklyMenu=createWeeklyMenu({context:()=>({email:currentUser?.email||'',active:currentUserProfile?.active===true&&currentUserProfile?.role!=='INSPECTOR'&&!isVisitingTeacher(),admin:['OWNER','ADMIN'].includes(currentUserProfile?.role),view:(view==='weekly_menu'||(view==='class_hub'&&['menu','all'].includes(classHubTab)))?'weekly_menu':view}),read:async()=>{const s=await getDoc(doc(db,'timetables','weekly_menu'));return s.exists()?s.data():null;},write:data=>setDoc(doc(db,'timetables','weekly_menu'),data),rerender:()=>render(),toast:message=>toast(message)});
+
+const teachingAttendanceView=createTeachingAttendanceView({context:()=>({email:currentUser?.email||'',active:currentUserProfile?.active===true,teacherId:currentUserProfile?.teacherId||'',role:currentUserProfile?.role||'',hrIds:officialHomeroomClassIds(),view}),rerender:()=>render()});
+const inspectionView=createInspectionView({context:()=>({email:currentUser?.email||'',active:currentUserProfile?.active===true,role:currentUserProfile?.role||'',view}),rerender:()=>render(),toast,getXLSX:loadXlsx,download});
+const attendanceView=createAttendanceView({context:()=>({email:currentUser?.email||'',active:currentUserProfile?.active===true,teacherId:currentUserProfile?.teacherId||'',role:currentUserProfile?.role||'',hrIds:officialHomeroomClassIds(),view}),rerender:()=>render(),toast});
 
 function renderClassHubPage(classes) {
   if (isVisitingTeacher()) return lessonReportsView.render();
@@ -3021,6 +3104,9 @@ function renderSubjectSelector(selectedSubjectNames = [], prefix = 'onboarding')
 export function render() {
   weeklyMenu.sync();
   lessonReportsView.sync();
+  attendanceView.sync();
+  inspectionView.sync();
+  teachingAttendanceView.sync();
   recordCurrentScrollPositions();
   // 1. Loading
   if (authLoading) {
@@ -3149,18 +3235,23 @@ export function render() {
 
   // 5. Active workspace rendering
   let workspaceData;
-  if (currentWorkspace === 'ADMIN') workspaceData = renderAdminWorkspace();
+  if (currentWorkspace === 'INSPECTOR') workspaceData={menu:[['inspection','📋','Thống kê điểm danh'],['attendance','✅','Điểm danh & Học sinh toàn trường']],content:()=>inspectionView.render()};
+  else if (currentWorkspace === 'ADMIN') workspaceData = renderAdminWorkspace();
   else if (currentWorkspace === 'SCHEDULER') workspaceData = renderSchedulerWorkspace();
   else if (currentWorkspace === 'HOMEROOM') workspaceData = renderHomeroomWorkspace();
   else if (currentWorkspace === 'VISITING') workspaceData = renderVisitingWorkspace();
   else workspaceData = renderRegularTeacherWorkspace();
 
   if(view==='lesson_reports' || view==='weekly_menu') workspaceData.content=()=>renderClassHubPage();
+  if(view==='inspection') workspaceData.content=()=>inspectionView.render();
+  if(view==='teaching_attendance') workspaceData.content=()=>teachingAttendanceView.render();
+  if(view==='attendance') workspaceData.content=()=>attendanceView.render();
   const availableWs = getAvailableWorkspaces();
   const roleNames = {
     OWNER: 'Quản trị chính',
     ADMIN: 'Quản trị viên',
     SCHEDULER: 'Người xếp lịch',
+    INSPECTOR: 'Giám thị',
     TEACHER: 'Giáo viên'
   };
 
@@ -4083,6 +4174,7 @@ function accountEditor(targetEmail) {
       <label>Vai trò hệ thống
         <select name="role" required ${isTargetOwner && !isOwner() ? 'disabled' : ''}>
           ${isOwner() ? '<option value="ADMIN" ' + (acc?.role === 'ADMIN' ? 'selected' : '') + '>ADMIN (Quản trị viên)</option>' : ''}
+          <option value="INSPECTOR" ${acc?.role === 'INSPECTOR' ? 'selected' : ''}>INSPECTOR (Giám thị · điểm danh và quản lý học sinh)</option>
           <option value="SCHEDULER" ${acc?.role === 'SCHEDULER' ? 'selected' : ''}>SCHEDULER (Người xếp lịch)</option>
           <option value="TEACHER" ${acc?.role === 'TEACHER' || !acc ? 'selected' : ''}>TEACHER (Giáo viên)</option>
           ${isOwner() && isTargetOwner ? '<option value="OWNER" selected>OWNER (Quản trị chính)</option>' : ''}
@@ -4203,7 +4295,6 @@ function downloadLocalDraft(){
 }
 
 // Fit printed sheets to their available preview frame; export dimensions stay native.
-function sheetCanvasSize(p){return {width:p.offsetWidth,height:p.offsetHeight,onclone(doc){const copy=doc.getElementById(p.id);if(copy){copy.style.setProperty('zoom','1','important');copy.style.setProperty('--poster-preview-scale','1');}}};}
 
 const actions = {
   'push-settings':()=>showPushSettings(openDialog),
@@ -4217,7 +4308,7 @@ const actions = {
     } catch (e) {}
     render();
   },
-  'published-excel':()=>{try{const file=publishedExcel(publishedTimetable,XLSX);download(file.filename,file.bytes,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');toast('Đã tải Excel toàn trường từ bản đã công bố, đủ tất cả lớp và tiết học.');}catch(error){toast(error.message);}},
+  'published-excel':async()=>{try{const XLSX=await loadXlsx();const file=publishedExcel(publishedTimetable,XLSX);download(file.filename,file.bytes,'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');toast('Đã tải Excel toàn trường từ bản đã công bố, đủ tất cả lớp và tiết học.');}catch(error){toast(error.message);}},
   'schedule-focus-enter':()=>{recordCurrentScrollPositions();matrixFocusEnabled=true;render();},
   'schedule-focus-exit':()=>{recordCurrentScrollPositions();matrixFocusEnabled=false;render();},
   'schedule-focus-tools':()=>{recordCurrentScrollPositions();matrixFocusTools=!matrixFocusTools;render();},
@@ -4282,6 +4373,7 @@ const actions = {
     }
   },
   'personal-jpg': downloadPersonalTeachingJpg,
+  'admin-teacher-jpg':()=>{if(!isAdmin()||view!=='teacher_schedules')return;const {pData,selected}=adminTeacherScheduleSelection();if(pData&&selected)return downloadPersonalTeachingJpg({teacherId:selected.id,pData});},
   'retry-profile': async () => {
     if(!currentUser)return;
     profileReadError='';authLoading=true;render();
@@ -4323,13 +4415,9 @@ const actions = {
         logging: false,
         backgroundColor: '#ffffff'
       });
-      const dataUrl = canvas.toDataURL('image/jpeg',0.95);
-      const a = document.createElement('a');
-      a.href = dataUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      const blob = await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.95));
+      if(!blob)throw Error('Chưa tạo được tệp ảnh. Vui lòng thử lại.');
+      download(filename,blob,'image/jpeg');
       toast(`Đã tải ảnh về máy: ${filename}`);
     } catch (err) {
       toast('Lỗi khi xuất ảnh TKB: ' + err.message);
@@ -5309,8 +5397,9 @@ const actions = {
     };
     input.click();
   },
-  'download-teacher-template': () => {
+  'download-teacher-template': async () => {
     try {
+      const XLSX = await loadXlsx();
       const ws = XLSX.utils.json_to_sheet(TEACHER_TEMPLATE_ROWS);
       ws['!cols'] = [
         { wch: 6 },
@@ -5342,6 +5431,7 @@ const actions = {
       try {
         toast(`Đang đọc tệp "${file.name}"...`);
         const buffer = await file.arrayBuffer();
+        const XLSX = await loadXlsx();
         const workbook = XLSX.read(buffer, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
         if (!firstSheetName) {
@@ -5791,7 +5881,7 @@ document.addEventListener('change', event => {
   if(event.target.id==='avail-note'){rememberAvailabilityNote();return;}
   if (event.target.id === 'workspace-select') {
     currentWorkspace = event.target.value;
-    view = currentWorkspace === 'ADMIN' ? 'overview'
+    view = currentWorkspace === 'INSPECTOR' ? 'inspection' : currentWorkspace === 'ADMIN' ? 'overview'
          : currentWorkspace === 'SCHEDULER' ? 'matrix'
          : currentWorkspace === 'HOMEROOM' ? 'homeroom_overview'
          : currentWorkspace === 'VISITING' ? 'visiting_overview' : 'my_teaching';

@@ -1,3 +1,4 @@
+import {timetableWeek,addDays} from '../src/weekly-availability.js';
 import {validateMenu} from '../src/weekly-menu-data.js';
 import {teacherPublishedRow} from './teacher-published.mjs';
 import {authorizeRead,authorizeWrite,isAdmin,isScheduler,fail} from './policy.mjs';
@@ -16,8 +17,27 @@ export function createService({store,verifyToken,ownerEmail}){
    if(collection==='timetables'&&id==='working'){const {changeHistory,versions,...schedule}=data;validateState(normalizeState({...structuredClone(schedule),versions}));}
    if(collection==='timetables'&&id==='published'&&data.isPublished){if(!data.data)throw fail(400,'Thiếu lịch công bố.');const state=normalizeState(structuredClone(data.data));validateState(state);assertDailySubjectRules(state);assertSessionAndRoboticsRules(state);if(findConflicts(state).length)throw fail(409,'Lịch công bố còn trùng giáo viên.','conflict');}
  }
+ function historySnapshot(publication){
+  if(!publication?.isPublished||!publication?.data)return null;
+  const school=publication.data.school||{},start=timetableWeek(publication.data),week=Number(String(school.currentWeek||school.week||'').replace(/^Tuần\s*/iu,''));
+  if(!start||start<'2026-11-02'||!Number.isInteger(week)||week<1||!school.year||!school.term)return null;
+  const id='pubweek~'+[school.year,school.term,start].map(encodeURIComponent).join('~');
+  const data={};for(const field of ['school','classes','subjects','teachers','timeSlots','timetableCells'])data[field]=structuredClone(publication.data[field]|| (field==='school'?{}:[]));
+  return {id,data:{kind:'published-week',week,start,end:addDays(start,4),year:school.year,term:school.term,publishedAt:publication.publishedAt||'',publishedBy:publication.publishedBy||'',isPublished:true,data}};
+ }
+ async function preservePublication(publication,actor){
+  const snapshot=historySnapshot(publication);if(!snapshot)return;
+  for(let attempt=0;attempt<3;attempt++){const before=await store.get('timetables',snapshot.id);if(equal(before.data,snapshot.data)||Date.parse(before.data?.publishedAt)>Date.parse(snapshot.data.publishedAt))return;try{await store.cas('timetables',snapshot.id,snapshot.data,before.version,actor.email,before.data);return;}catch(e){if(e.status!==409||attempt===2)throw e;}}
+ }
+ const historyMeta=row=>({id:row.id,week:row.data.week,start:row.data.start,end:row.data.end,year:row.data.year,term:row.data.term,publishedAt:row.data.publishedAt});
  return {
-  async read(token,collection,id){const actor=await actorFor(token);authorizeRead(actor,collection,id);if(id!==undefined){validTarget(collection,id);const teacherPublished=collection==='timetables'&&id==='published'&&!isScheduler(actor);const row=teacherPublished&&store.getTeacherPublished?await store.getTeacherPublished():await store.get(collection,id);if(teacherPublished)return teacherPublishedRow(row);if(collection==='requests'&&!isScheduler(actor)&&row.data&&row.data.teacherEmail!==actor.email)throw fail(403,'Bạn chỉ được đọc yêu cầu của mình.');return row;}if(!collections.includes(collection))throw fail(400,'Danh mục không hợp lệ.');let records=await store.list(collection,collection==='requests'&&!isScheduler(actor)?{email:actor.email}:{});
+  async read(token,collection,id){const actor=await actorFor(token);authorizeRead(actor,collection,id);if(id!==undefined){validTarget(collection,id);if(collection==='timetables'&&id==='publication_history'){
+    const current=await store.get('timetables','published'),snapshot=historySnapshot(current.data),rows=store.listPublicationHistory?await store.listPublicationHistory(): (await store.list('timetables')).filter(r=>r.id.startsWith('pubweek~')).map(historyMeta);
+    const items=new Map(rows.map(r=>[r.id,r]));if(snapshot)items.set(snapshot.id,{...historyMeta(snapshot),sourceId:'published'});
+    return {id,version:0,data:{items:[...items.values()].sort((a,b)=>b.start.localeCompare(a.start))}};
+   }
+   if(collection==='timetables'&&id.startsWith('pubweek~')){const snapshot=historySnapshot((await store.get('timetables','published')).data);if(snapshot?.id===id)return {...snapshot,version:0};}
+   const teacherPublished=collection==='timetables'&&id==='published'&&!isScheduler(actor);const row=teacherPublished&&store.getTeacherPublished?await store.getTeacherPublished():await store.get(collection,id);if(teacherPublished)return teacherPublishedRow(row);if(collection==='requests'&&!isScheduler(actor)&&row.data&&row.data.teacherEmail!==actor.email)throw fail(403,'Bạn chỉ được đọc yêu cầu của mình.');return row;}if(!collections.includes(collection))throw fail(400,'Danh mục không hợp lệ.');let records=await store.list(collection,collection==='requests'&&!isScheduler(actor)?{email:actor.email}:{});
    if(collection==='availabilities'){
     const profiles=await store.list('users');
     records=records.map(row=>{const profile=profiles.find(p=>p.id===row.id)?.data;return {...row,data:{...row.data,teacherEmail:row.id,teacherId:profile?.teacherId||'',active:profile?.active===true}};});
@@ -40,6 +60,7 @@ export function createService({store,verifyToken,ownerEmail}){
      if(collection==='timetables'&&id==='working'&&next){if(findConflicts(next).some(group=>group.some(cell=>cell.isSubstitute)))throw fail(409,'Giáo viên dạy thay đã có lịch trùng tiết. Hãy chọn giáo viên hoặc khung giờ khác.','conflict');assertDailySubjectRules(next,next.timetableCells,current.data?.timetableCells||[]);assertSessionAndRoboticsRules(next,next.timetableCells,current.data?.timetableCells||[]);}
      if(sameContent(current.data,next))return {...current,skipped:true,receiptSafe:current.version===expectedVersion};
      if(next){next={...next,updatedAt:new Date().toISOString(),updatedBy:actor.email};if(collection==='timetables'&&id==='working')next.revision=(current.data?.revision||0)+1;}
+     if(collection==='timetables'&&id==='published')await preservePublication(current.data,actor);
      try{return {...await store.cas(collection,id,next,current.version,actor.email,current.data),skipped:false,receiptSafe:current.version===expectedVersion};}catch(e){
       // A timed out CAS may have committed. Confirm with a fresh version read; never blindly resend it.
       if(e.status===503){try{const confirmed=await store.get(collection,id);if(sameContent(confirmed.data,next))return {...confirmed,skipped:false};}catch{}throw e;}

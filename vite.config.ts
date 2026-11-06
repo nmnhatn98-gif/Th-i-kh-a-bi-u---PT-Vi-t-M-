@@ -1,12 +1,9 @@
-import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    build: {rollupOptions:{input:{app:path.resolve(import.meta.dirname,'index.html'),migration:path.resolve(import.meta.dirname,'migration-export.html')}}},
-    plugins: [react(), tailwindcss()],
+    build: {rollupOptions:{input:{app:path.resolve(import.meta.dirname,'index.html')}}},
     resolve: {
       alias: {
         '@': path.resolve(import.meta.dirname, '.'),

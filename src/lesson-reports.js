@@ -1,7 +1,7 @@
 import {lessonReportRequest as request} from './lesson-report-client.js';
 import {reportId,sheetId,reportEntries,reportVersions,sheetChanged,reportDays,reportEnd} from './lesson-report-data.js';
 import {mondayOf,todayWeek,weekCaption} from './weekly-availability.js';
-import html2canvas from 'html2canvas';
+import {html2canvas,sheetCanvasSize} from './export-libraries.js';
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const multiline=x=>esc(x).replace(/\n/g,'<br>');
 const emptyEntries=()=>Array.from({length:5},(_,i)=>({day:i+2,text:'',note:''}));
@@ -33,5 +33,4 @@ export function createLessonReportView({context,rerender,toast}){
  return {sync,render,badge:()=>pending()};
 }
 
-// Fit printed sheets to their available preview frame; export dimensions stay native.
-function sheetCanvasSize(p){return {width:p.offsetWidth,height:p.offsetHeight,onclone(doc){const copy=doc.getElementById(p.id);if(copy){copy.style.setProperty('zoom','1','important');copy.style.setProperty('--poster-preview-scale','1');}}};}
+

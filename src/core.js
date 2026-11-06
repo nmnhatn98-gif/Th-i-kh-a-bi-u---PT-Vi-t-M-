@@ -7,6 +7,7 @@ export const keyOf = (classId, timeSlotId) => `${classId}::${timeSlotId}`;
 const compactName = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/gi,'d').toLowerCase().replace(/[^a-z0-9]/g,'');
 export function subjectTrack(subject) {
  const n=compactName(subject?.name),code=compactName(subject?.code);
+ if([n,code].some(v=>['gdqp','gdqpan','gdqpanninh','giaoducquocphong','giaoducquocphonganninh','giaoducquocphongvaanninh'].includes(v)))return 'COMMON';
  if(['cddiali','cddialy','gdktpl','gdcd','giaoduccongdan','cdnguvan','cdtinhoc','diali','dialy'].includes(n)||['gdktpl','gdktvapl','gdcd','diali','dialy'].includes(code))return 'XH';
  if(['cdhoa','cdhoahoc','hoa','hoahoc','sinh','sinhhoc','cdtoan','cdvatli','cdvatly','congnghe','cdcongnghe','cn'].includes(n)||['cn','congnghe','cong_nghe'].includes(code))return 'TN';
  if(['toan','nguvan','van','ngoaingu','tienganh','lichsu','vatli','vatly','vatlydaitra','vatlidaitra','tinhoc','hdtnhn','hoatdongtrainghiemhuongnghiep','gddpdiali','gddpdialy','theduc','chaoco','shl','sinhhoatlop','taesl','clb'].includes(n)||['chaoco','hdtn_hn','ta_esl','clb'].includes(code))return 'COMMON';
@@ -52,6 +53,13 @@ export function sessionAndRoboticsViolations(state,cells=state.timetableCells||[
   const key=lesson.classId+':'+slot.dayOfWeek+':'+identity;
   if(!daily.has(key))daily.set(key,[]);daily.get(key).push({lesson,slot,subject});
   if([subject.name,subject.code].some(n=>/^airobotics?$/.test(compactName(n)))){if(!robotics.has(slot.id))robotics.set(slot.id,[]);robotics.get(slot.id).push({lesson,slot,subject});}
+ }
+ for(const [key,group] of daily)for(const session of ['MORNING','AFTERNOON']){
+  const ordered=[...new Map(group.filter(x=>x.slot.session===session).map(x=>[Number(x.slot.period),x])).values()].sort((a,b)=>Number(a.slot.period)-Number(b.slot.period));
+  for(let i=1;i<ordered.length;i++){
+   const a=ordered[i-1],b=ordered[i];if(Number(b.slot.period)-Number(a.slot.period)===1)continue;
+   violations.push({key:'adjacent:'+key+':'+a.slot.id+':'+b.slot.id,message:`Lớp ${classes.get(a.lesson.classId).name}, Thứ ${a.slot.dayOfWeek}: môn ${a.subject.name} phải xếp các tiết liền kề. Không được xếp tiết ${a.slot.period} và tiết ${b.slot.period} ${session==='MORNING'?'buổi sáng':'buổi chiều'} cách nhau.`});
+  }
  }
  for(const [key,group] of daily)for(const a of group.filter(x=>x.slot.session==='MORNING'))for(const b of group.filter(x=>x.slot.session==='AFTERNOON')){
   // Only the adjacent morning-5 / afternoon-1 pair may bridge sessions.
